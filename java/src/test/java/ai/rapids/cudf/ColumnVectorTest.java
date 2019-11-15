@@ -20,6 +20,8 @@ package ai.rapids.cudf;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.stream.IntStream;
 
 import static ai.rapids.cudf.QuantileMethod.*;
@@ -99,6 +101,28 @@ public class ColumnVectorTest extends CudfTestBase {
           assertEquals(i + 1, v.getDouble(i), "at index " + i);
         } else {
           assertTrue(v.isNull(i), "at index " + i);
+        }
+      }
+    }
+  }
+
+  @Test
+  void testNanNormalization() {
+    try (
+            ColumnVector input      = ColumnVector.fromBoxedDoubles(0.0, 1.1, 2.2, -0.0, Double.NaN, -Double.NaN, null);
+            ColumnVector expected   = ColumnVector.fromBoxedDoubles(0.0, 1.1, 2.2,  0.0, Double.NaN,  Double.NaN, null);
+            ColumnVector normalized = input.normalizeNANsAndZeroes();
+    ) {
+      normalized.ensureOnHost();
+      for (int i = 0; i<input.getRowCount(); ++i) {
+        if (expected.isNull(i)) {
+          assertTrue(normalized.isNull(i));
+        }
+        else {
+          assertEquals(
+                  Double.doubleToRawLongBits(expected.getDouble(i)),
+                  Double.doubleToRawLongBits(normalized.getDouble(i))
+          );
         }
       }
     }

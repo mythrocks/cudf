@@ -2030,6 +2030,7 @@ public final class ColumnVector implements AutoCloseable, BinaryOperable {
 
   private static native long concatenate(long[] columnHandles) throws CudfException;
 
+
   /////////////////////////////////////////////////////////////////////////////
   // HELPER CLASSES
   /////////////////////////////////////////////////////////////////////////////
@@ -2575,6 +2576,15 @@ public final class ColumnVector implements AutoCloseable, BinaryOperable {
         columnHandles[i] = columns[i].getNativeCudfColumnAddress();
       }
       return new ColumnVector(concatenate(columnHandles));
+    }
+  }
+
+  private static native long normalizeNANsAndZeroes(long columnHandles) throws CudfException;
+
+  public ColumnVector normalizeNANsAndZeroes() {
+    try (DevicePrediction prediction =
+                 new DevicePrediction(getDeviceMemorySize(), "normalizeNANsAndZeroes")) {
+      return new ColumnVector(normalizeNANsAndZeroes(getNativeCudfColumnAddress()));
     }
   }
 
