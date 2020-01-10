@@ -249,6 +249,10 @@ public final class Table implements AutoCloseable {
   private static native long[] groupByAggregate(long inputTable, int[] keyIndices, int[] aggColumnsIndices,
                                                 int[] aggTypes, boolean ignoreNullKeys) throws CudfException;
 
+  private static native long[] rollingWindowAggregate(long inputTable, int[] keyIndices, int[] aggColumnsIndices,
+                                                      int[] aggTypes, int[] minPeriods, int[] preceding, int[] following,
+                                                      boolean ignoreNullKeys) throws CudfException;
+
   private static native long[] orderBy(long inputTable, long[] sortKeys, boolean[] isDescending,
                                        boolean[] areNullsSmallest) throws CudfException;
 

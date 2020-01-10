@@ -78,6 +78,20 @@ std::unique_ptr<cudf::experimental::aggregation> map_jni_aggregation(jint op) {
   }
 }
 
+namespace {
+  // Check that window parameters are valid.
+  bool valid_window_parameters(native_jintArray const& values, 
+                               native_jintArray const& ops,
+                               native_jintArray const& min_periods,
+                               native_jintArray const& preceding,
+                               native_jintArray const& following) {
+    return values.size() == ops.size()
+        && values.size() == min_periods.size()
+        && values.size() == preceding.size()
+        && values.size() == following.size();
+  }
+}
+
 } // namespace jni
 } // namespace cudf
 
@@ -582,6 +596,90 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_groupByAggregate(
       }
     }
     return cudf::jni::convert_table_for_return(env, result.first, result_columns);
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
+    JNIEnv *env, jclass clazz, jlong j_input_table, 
+    jintArray j_keys,
+    jintArray j_aggregate_column_indices, 
+    jintArray j_agg_types, 
+    jintArray j_min_periods,
+    jintArray j_preceding,
+    jintArray j_following,
+    jboolean ignore_null_keys) {
+
+  JNI_NULL_CHECK(env, j_input_table, "input table is null", NULL);
+  JNI_NULL_CHECK(env, j_keys, "input keys are null", NULL);
+  JNI_NULL_CHECK(env, j_aggregate_column_indices, "input aggregate_column_indices are null", NULL);
+  JNI_NULL_CHECK(env, j_agg_types, "agg_types are null", NULL);
+
+  try {
+
+    using cudf::jni::valid_window_parameters;
+    using cudf::experimental::groupby::groupby;
+    using cudf::experimental::groupby::window_bounds;
+    using window_request = cudf::experimental::groupby::window_aggregation_request;
+
+    // Convert from j-types to native.
+    cudf::table_view *input_table {reinterpret_cast<cudf::table_view *>(j_input_table)};
+    cudf::jni::native_jintArray keys{env, j_keys};
+    cudf::jni::native_jintArray values{env, j_aggregate_column_indices};
+    cudf::jni::native_jintArray ops{env, j_agg_types};
+    cudf::jni::native_jintArray min_periods{env, j_min_periods};
+    cudf::jni::native_jintArray preceding{env, j_preceding};
+    cudf::jni::native_jintArray following{env, j_following};
+
+    if (not valid_window_parameters(values, ops, min_periods, preceding, following)) {
+      JNI_THROW_NEW(env, "java/lang/IllegalArgumentException",
+                  "Number of aggregation columns must match number of agg ops, and window-specs", nullptr);
+    }
+
+    // Construct aggregation requests.
+    std::vector<window_request> requests;
+    int previous_index = -1;
+    for (int i(0); i < values.size(); ++i) {
+      int col_index = values[i];
+      if (col_index != previous_index) {
+        requests.emplace_back(window_request{input_table->column(col_index), {}});
+      }
+      requests.back().aggregations.emplace_back(
+          window_bounds{preceding[i], following[i], min_periods[i]},
+          cudf::jni::map_jni_aggregation(ops[i])
+      );
+      previous_index = col_index;
+    }
+
+    // Extract groupby key-columns.
+    std::vector<cudf::column_view> groupby_keys;
+    std::transform(keys.data(), keys.data() + keys.size(), std::back_inserter(groupby_keys),
+      [&](auto const& col_index) {return input_table->column(col_index);}
+    );
+
+    static const bool ASSUME_KEYS_ARE_PRE_SORTED(true);
+    auto groupby_keys_and_aggregation_result {
+      groupby{cudf::table_view{groupby_keys}, ignore_null_keys, ASSUME_KEYS_ARE_PRE_SORTED}
+        .windowed_aggregate(requests)
+    };
+
+    auto& aggregation_results {groupby_keys_and_aggregation_result.second};
+    // Copy results out.
+    std::vector<std::unique_ptr<cudf::column>> result_columns;
+    std::for_each(
+      aggregation_results.begin(), aggregation_results.end(),
+      [&result_columns](auto& aggregation_result) {
+        std::transform(
+          aggregation_result.results.begin(), aggregation_result.results.end(), 
+          std::back_inserter(result_columns),
+          [&](auto& column_pointer) {
+            return std::move(column_pointer);
+          }
+        );
+      }
+    );
+
+    return cudf::jni::convert_table_for_return(env, groupby_keys_and_aggregation_result.first, result_columns);
   }
   CATCH_STD(env, NULL);
 }
