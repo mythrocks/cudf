@@ -1644,6 +1644,204 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
+  void testWindowingCount() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        WindowOptions window = WindowOptions.builder()
+                                            .minPeriods(1)
+                                            .window(1, 1)
+                                            .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(WindowAggregate.count(3, window))) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2),
+              windowAggResults.getColumn(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testWindowingMin() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        WindowOptions window = WindowOptions.builder()
+                                            .minPeriods(1)
+                                            .window(1, 1)
+                                            .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(WindowAggregate.min(3, window))) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 5, 1, 1, 1, 7, 7, 2, 2, 0, 0, 0, 6),
+              windowAggResults.getColumn(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testWindowingMax() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        WindowOptions window = WindowOptions.builder()
+                                            .minPeriods(1)
+                                            .window(1, 1)
+                                            .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(WindowAggregate.max(3, window))) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6),
+              windowAggResults.getColumn(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testWindowingSum() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        WindowOptions window = WindowOptions.builder()
+                                            .minPeriods(1)
+                                            .window(1, 1)
+                                            .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(WindowAggregate.sum(3, window))) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12),
+              windowAggResults.getColumn(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testWindowingMean() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        WindowOptions window = WindowOptions.builder()
+                                            .minPeriods(1)
+                                            .window(1, 1)
+                                            .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(WindowAggregate.mean(3, window))) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 6, 4, 5, 5, 8, 8, 6, 5, 4, 4, 4, 6),
+              windowAggResults.getColumn(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testWindowingMultipleOnDifferentColumns() {
+    try (Table unsorted = new Table.TestBuilder().column( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) // GBY Key
+                                                 .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
+                                                 .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
+                                                 .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
+                                                 .build()) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+        ColumnVector sortedAggColumn = sorted.getColumn(3);
+        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+
+        // Window (1,1), with a minimum of 1 reading.
+        WindowOptions window_1 = WindowOptions.builder()
+                                              .minPeriods(1)
+                                              .window(1, 1)
+                                              .build();
+
+        // Window (2,2), with a minimum of 2 readings.
+        WindowOptions window_2 = WindowOptions.builder()
+                                              .minPeriods(2)
+                                              .window(2, 2)
+                                              .build();
+
+        // Window (1,1), with a minimum of 3 readings.
+        WindowOptions window_3 = WindowOptions.builder()
+                                              .minPeriods(3)
+                                              .window(1, 1)
+                                              .build();
+
+        try (Table windowAggResults = sorted.groupBy(0, 1)
+                                            .aggregateWindows(
+                                                WindowAggregate.sum(3, window_1),
+                                                WindowAggregate.max(3, window_1),
+                                                WindowAggregate.sum(3, window_2),
+                                                WindowAggregate.min(2, window_3)
+                                            )) {
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+              windowAggResults.getColumn(0));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
+              windowAggResults.getColumn(1));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12),
+              windowAggResults.getColumn(2));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6),
+              windowAggResults.getColumn(3));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 13, 22, 22, 15, 24, 26, 26, 19, 14, 20, 20, 12),
+              windowAggResults.getColumn(4));
+          assertColumnsAreEqual(ColumnVector.fromBoxedInts( null, 1, 1, null, null, 3, 3, null, null, 5, 5, null),
+              windowAggResults.getColumn(5));
+        }
+      }
+    }
+  }
+
+  @Test
   void testMultiAgg() {
     try (Table t1 = new Table.TestBuilder().column(  1,   1,   1,   1,   1,    1)
                                            .column(  2,   2,   2,   3,   3,    3)
