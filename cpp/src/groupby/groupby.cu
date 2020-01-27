@@ -143,7 +143,7 @@ void verify_valid_requests(std::vector<aggregation_request> const& requests) {
  * @returns   A nullable output column containing the rolling window results
  **/
 
-std::unique_ptr<column> moved_rolling_window(column_view const& input,
+std::unique_ptr<column> rolling_window(column_view const& input,
                                        rmm::device_vector<cudf::size_type> const& group_offsets,
                                        size_type preceding_window,
                                        size_type following_window,
@@ -263,7 +263,7 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::wind
         window_request.aggregations.begin(), window_request.aggregations.end(), 
         std::back_inserter(per_request_results),
         [&](std::pair<window_bounds, std::unique_ptr<aggregation>> const& agg) {
-          return moved_rolling_window(
+          return rolling_window(
             values,
             group_offsets,
             agg.first.preceding,
