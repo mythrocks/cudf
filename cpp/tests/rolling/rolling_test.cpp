@@ -30,7 +30,6 @@
 //#include <cudf/strings/convert/convert_datetime.hpp>
 
 #include <thrust/iterator/constant_iterator.h>
-#include <thrust/binary_search.h>
 
 #include <vector>
 
@@ -41,10 +40,8 @@ using cudf::bitmask_type;
 template <typename T>
 class RollingTest : public cudf::test::BaseFixture {
 protected:
-
   // input as column_wrapper
   void run_test_col(cudf::column_view const& input,
-                    const std::vector<size_type> &group_offsets,
                     const std::vector<size_type> &preceding_window,
                     const std::vector<size_type> &following_window,
                     size_type min_periods,
@@ -64,21 +61,13 @@ protected:
                                                                   min_periods, op));
     }
     else {
-      if (group_offsets.size() <= 2) { // No more than 1 group specified. Ignore groups.
-        EXPECT_NO_THROW(output = cudf::experimental::rolling_window(input, preceding_window[0],
-                                                                    following_window[0],
-                                                                    min_periods, op));
-      }
-      else {
-        EXPECT_NO_THROW(output = cudf::experimental::rolling_window(input, group_offsets,
-                                                                    preceding_window[0],
-                                                                    following_window[0],
-                                                                    min_periods, op));
-       }
+      EXPECT_NO_THROW(output = cudf::experimental::rolling_window(input, preceding_window[0],
+                                                                  following_window[0],
+                                                                  min_periods, op));
     }
 
-    auto reference = create_reference_output(op, input, group_offsets, preceding_window, 
-                                             following_window, min_periods);
+    auto reference = create_reference_output(op, input, preceding_window, following_window,
+                                             min_periods);
 
 #if 0
     std::cout << "input:\n";
@@ -102,24 +91,14 @@ protected:
                         const std::vector<size_type> &following_window,
                         size_type min_periods)
   {
-    run_test_col_agg(input, std::vector<size_type>{}, preceding_window, following_window, min_periods);
-  }  
-  
-  // helper function to test all aggregators
-  void run_test_col_agg(cudf::column_view const& input,
-                        const std::vector<size_type> &group_offsets,
-                        const std::vector<size_type> &preceding_window,
-                        const std::vector<size_type> &following_window,
-                        size_type min_periods)
-  {
     // test all supported aggregators
-    run_test_col(input, group_offsets, preceding_window, following_window, min_periods, cudf::experimental::make_min_aggregation());
-    run_test_col(input, group_offsets, preceding_window, following_window, min_periods, cudf::experimental::make_count_aggregation());
-    run_test_col(input, group_offsets, preceding_window, following_window, min_periods, cudf::experimental::make_max_aggregation());
-    run_test_col(input, group_offsets, preceding_window, following_window, min_periods, cudf::experimental::make_mean_aggregation());
+    run_test_col(input, preceding_window, following_window, min_periods, cudf::experimental::make_min_aggregation());
+    run_test_col(input, preceding_window, following_window, min_periods, cudf::experimental::make_count_aggregation());
+    run_test_col(input, preceding_window, following_window, min_periods, cudf::experimental::make_max_aggregation());
+    run_test_col(input, preceding_window, following_window, min_periods, cudf::experimental::make_mean_aggregation());
 
     if (!cudf::is_timestamp(input.type()))
-      run_test_col(input, group_offsets, preceding_window, following_window, min_periods, cudf::experimental::make_sum_aggregation());
+      run_test_col(input, preceding_window, following_window, min_periods, cudf::experimental::make_sum_aggregation());
   }
 
   private:
@@ -129,7 +108,6 @@ protected:
   // specialization for COUNT
   std::unique_ptr<cudf::column> 
   create_count_reference_output(cudf::column_view const& input,
-                                std::vector<size_type> const& group_offsets,
                                 std::vector<size_type> const& preceding_window_col,
                                 std::vector<size_type> const& following_window_col,
                                 size_type min_periods)
@@ -143,9 +121,6 @@ protected:
     std::vector<bitmask_type> in_valid = cudf::test::bitmask_to_host(input);
     bitmask_type* valid_mask = in_valid.data();
 
-    std::vector<size_type> group_offsets_nonempty 
-      = group_offsets.empty()? std::vector<size_type>{0, input.size()} : group_offsets;
-
     for(size_type i = 0; i < num_rows; i++) {
       // load sizes
       min_periods = std::max(min_periods, 1); // at least one observation is required
@@ -153,10 +128,8 @@ protected:
       // compute bounds
       auto preceding_window = preceding_window_col[i%preceding_window_col.size()];
       auto following_window = following_window_col[i%following_window_col.size()];
-      auto group_end_index = std::upper_bound(group_offsets_nonempty.begin(), group_offsets_nonempty.end(), i);
-      auto group_start_index = group_end_index - 1;
-      size_type start_index = std::max(*group_start_index, i - preceding_window);
-      size_type end_index   = std::min(*group_end_index, i + following_window + 1);
+      size_type start_index = std::max((size_type)0, i - preceding_window);
+      size_type end_index   = std::min(num_rows, i + following_window + 1);
 
       // aggregate
       size_type count = 0;
@@ -179,7 +152,6 @@ protected:
            std::enable_if_t<cudf::detail::is_supported<T, agg_op, k, is_mean>()>* = nullptr>
   std::unique_ptr<cudf::column>
   create_reference_output(cudf::column_view const& input,
-                          std::vector<size_type> const& group_offsets,
                           std::vector<size_type> const& preceding_window_col,
                           std::vector<size_type> const& following_window_col,
                           size_type min_periods)
@@ -194,9 +166,6 @@ protected:
     std::tie(in_col, in_valid) = cudf::test::to_host<T>(input); 
     bitmask_type* valid_mask = in_valid.data();
     
-    std::vector<size_type> group_offsets_nonempty 
-      = group_offsets.empty()? std::vector<size_type>{0, input.size()} : group_offsets;
-
     agg_op op;
     for(size_type i = 0; i < num_rows; i++) {
       T val = agg_op::template identity<T>();
@@ -207,10 +176,8 @@ protected:
       // compute bounds
       auto preceding_window = preceding_window_col[i%preceding_window_col.size()];
       auto following_window = following_window_col[i%following_window_col.size()];
-      auto group_end_index = std::upper_bound(group_offsets_nonempty.begin(), group_offsets_nonempty.end(), i);
-      auto group_start_index = group_end_index - 1;
-      size_type start_index = std::max(*group_start_index, i - preceding_window);
-      size_type end_index   = std::min(*group_end_index, i + following_window + 1);
+      size_type start_index = std::max((size_type)0, i - preceding_window);
+      size_type end_index   = std::min(num_rows, i + following_window + 1);
       
       // aggregate
       size_type count = 0;
@@ -234,7 +201,6 @@ protected:
   template<typename  agg_op, cudf::experimental::aggregation::Kind k, bool is_mean,
            std::enable_if_t<!cudf::detail::is_supported<T, agg_op, k, is_mean>()>* = nullptr>
   std::unique_ptr<cudf::column> create_reference_output(cudf::column_view const& input,
-                                                        std::vector<size_type> const& group_offsets,
                                                         std::vector<size_type> const& preceding_window_col,
                                                         std::vector<size_type> const& following_window_col,
                                                         size_type min_periods)
@@ -244,7 +210,6 @@ protected:
 
   std::unique_ptr<cudf::column> create_reference_output(std::unique_ptr<cudf::experimental::aggregation>const& op,
                                                         cudf::column_view const& input,
-                                                        std::vector<size_type> const& group_offsets,
                                                         std::vector<size_type> const& preceding_window,
                                                         std::vector<size_type> const& following_window,
                                                         size_type min_periods)
@@ -252,18 +217,18 @@ protected:
     // unroll aggregation types
     switch(op->kind) {
     case cudf::experimental::aggregation::SUM:
-      return create_reference_output<cudf::DeviceSum, cudf::experimental::aggregation::SUM, false>(input, group_offsets, preceding_window,
+      return create_reference_output<cudf::DeviceSum, cudf::experimental::aggregation::SUM, false>(input, preceding_window,
                                                              following_window, min_periods);
     case cudf::experimental::aggregation::MIN:
-      return create_reference_output<cudf::DeviceMin, cudf::experimental::aggregation::MIN, false>(input, group_offsets, preceding_window,
+      return create_reference_output<cudf::DeviceMin, cudf::experimental::aggregation::MIN, false>(input, preceding_window,
                                                              following_window, min_periods);
     case cudf::experimental::aggregation::MAX:
-      return create_reference_output<cudf::DeviceMax, cudf::experimental::aggregation::MAX, false>(input, group_offsets, preceding_window,
+      return create_reference_output<cudf::DeviceMax, cudf::experimental::aggregation::MAX, false>(input, preceding_window,
                                                              following_window, min_periods);
     case cudf::experimental::aggregation::COUNT:
-      return create_count_reference_output(input, group_offsets, preceding_window, following_window, min_periods);
+      return create_count_reference_output(input, preceding_window, following_window, min_periods);
     case cudf::experimental::aggregation::MEAN:
-      return create_reference_output<cudf::DeviceSum, cudf::experimental::aggregation::MEAN, true>(input, group_offsets, preceding_window,
+      return create_reference_output<cudf::DeviceSum, cudf::experimental::aggregation::MEAN, true>(input, preceding_window,
                                                             following_window, min_periods);
     default:
       return fixed_width_column_wrapper<T>({}).release();
@@ -415,70 +380,6 @@ TYPED_TEST(RollingTest, SimpleStatic)
 
   // static sizes
   this->run_test_col_agg(input, window, window, 1);
-}
-
-// Test rolling_window operations on a partitioned column vector.
-// Each window cannot cross group boundaries.
-TYPED_TEST(RollingTest, SimplePartitionedStatic)
-{
-  const std::vector<TypeParam> col_data {0, 10, 20, 30, 40, 50, 60, 70, 80, 90};
-  const std::vector<bool>      col_mask (col_data.size(), true);
-
-  fixed_width_column_wrapper<TypeParam> input(col_data.begin(), col_data.end(), col_mask.begin());
-  std::vector<size_type> window{1};
-  std::vector<size_type> group_offsets{0, 3, 7, static_cast<size_type>(col_data.size())};
-
-  // static sizes
-  this->run_test_col_agg(input, group_offsets, window, window, 1);
-}
-
-// Test rolling_window operations on a partitioned column vector, with unbounded preceding window.
-// Each window cannot cross group boundaries, in spite of being unbounded.
-TYPED_TEST(RollingTest, SimplePartitionedStaticUnboundedPreceding)
-{
-  const std::vector<TypeParam> col_data {0, 10, 20, 30, 40, 50, 60, 70, 80, 90};
-  const std::vector<bool>      col_mask (col_data.size(), true);
-
-  fixed_width_column_wrapper<TypeParam> input(col_data.begin(), col_data.end(), col_mask.begin());
-  std::vector<size_type> preceding_window{static_cast<size_type>(-1)};
-  std::vector<size_type> following_window{2};
-  std::vector<size_type> group_offsets{0, 3, 7, static_cast<size_type>(col_data.size())};
-
-  // static sizes
-  this->run_test_col_agg(input, group_offsets, preceding_window, following_window, 1);
-}
-
-// Test rolling_window operations on a partitioned column vector, with unbounded following window.
-// Each window cannot cross group boundaries, in spite of being unbounded.
-TYPED_TEST(RollingTest, SimplePartitionedStaticUnboundedFollowing)
-{
-  const std::vector<TypeParam> col_data {0, 10, 20, 30, 40, 50, 60, 70, 80, 90};
-  const std::vector<bool>      col_mask (col_data.size(), true);
-
-  fixed_width_column_wrapper<TypeParam> input(col_data.begin(), col_data.end(), col_mask.begin());
-  std::vector<size_type> preceding_window{2};
-  std::vector<size_type> following_window{static_cast<size_type>(-1)};
-  std::vector<size_type> group_offsets{0, 3, 7, static_cast<size_type>(col_data.size())};
-
-  // static sizes
-  this->run_test_col_agg(input, group_offsets, preceding_window, following_window, 1);
-}
-
-// Test rolling_window operations on a partitioned column vector, with unbounded 
-//  preceding *and* following window.
-// Each window cannot cross group boundaries, in spite of being unbounded.
-TYPED_TEST(RollingTest, SimplePartitionedStaticUnboundedPrecedingAndFollowing)
-{
-  const std::vector<TypeParam> col_data {0, 10, 20, 30, 40, 50, 60, 70, 80, 90};
-  const std::vector<bool>      col_mask (col_data.size(), true);
-
-  fixed_width_column_wrapper<TypeParam> input(col_data.begin(), col_data.end(), col_mask.begin());
-  std::vector<size_type> preceding_window{static_cast<size_type>(-1)};
-  std::vector<size_type> following_window{static_cast<size_type>(-1)};
-  std::vector<size_type> group_offsets{0, 3, 7, static_cast<size_type>(col_data.size())};
-
-  // static sizes
-  this->run_test_col_agg(input, group_offsets, preceding_window, following_window, 1);
 }
 
 // simple example from Pandas docs:
@@ -818,4 +719,5 @@ TEST_F(RollingTestStrings, StringsUnsupportedOperators)
 
 //   cudf::test::expect_columns_equal(*output, expected);
 // }
+
 
