@@ -77,7 +77,7 @@ inline void test_single_rolling_window_agg(
     experimental::groupby::groupby gb_obj(table_view({keys}),
         ignore_null_keys, keys_are_sorted, column_order, null_precedence);
 
-    auto result = gb_obj.aggregate(requests);
+    auto result = gb_obj.windowed_aggregate(requests);
 
 #if 0
     std::cout << "Results: \n";

@@ -273,7 +273,7 @@ class groupby {
    * a vector of aggregation_results for each request in the same order as
    * specified in `requests`.
    */
-  std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> aggregate(
+  std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> windowed_aggregate(
       std::vector<window_aggregation_request> const& requests,
       rmm::mr::device_memory_resource* mr = rmm::mr::get_default_resource());
 
