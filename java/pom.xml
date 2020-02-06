@@ -21,7 +21,7 @@
 
     <groupId>ai.rapids</groupId>
     <artifactId>cudf</artifactId>
-    <version>0.13-SNAPSHOT</version>
+    <version>0.13-myth</version>
 
     <name>cudfjni</name>
     <description>
