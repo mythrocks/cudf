@@ -28,15 +28,14 @@ namespace cudf {
 namespace jni {
 
 /**
- * Take a table returned by some operation and turn it into an array of column* so we can track them ourselves
+ * Take a list of columns returned by some operation and turn it into an array of column* so we can track them ourselves
  * in java instead of having their life tied to the table.
  * @param table_result the table to convert for return
  * @param extra_columns columns not in the table that will be added to the result at the end.
  */
-static jlongArray convert_table_for_return(JNIEnv * env,
-        std::unique_ptr<cudf::experimental::table> &table_result,
+static jlongArray convert_for_return(JNIEnv * env,
+        std::vector<std::unique_ptr<cudf::column>> &ret,
         std::vector<std::unique_ptr<cudf::column>> &extra_columns) {
-    std::vector<std::unique_ptr<cudf::column>> ret = table_result->release();
     int table_cols = ret.size();
     int num_columns = table_cols + extra_columns.size();
     cudf::jni::native_jlongArray outcol_handles(env, num_columns);
@@ -47,6 +46,19 @@ static jlongArray convert_table_for_return(JNIEnv * env,
       outcol_handles[i + table_cols] = reinterpret_cast<jlong>(extra_columns[i].release());
     }
     return outcol_handles.get_jArray();
+}
+
+/**
+ * Take a table returned by some operation and turn it into an array of column* so we can track them ourselves
+ * in java instead of having their life tied to the table.
+ * @param table_result the table to convert for return
+ * @param extra_columns columns not in the table that will be added to the result at the end.
+ */
+static jlongArray convert_table_for_return(JNIEnv * env,
+        std::unique_ptr<cudf::experimental::table> &table_result,
+        std::vector<std::unique_ptr<cudf::column>> &extra_columns) {
+    std::vector<std::unique_ptr<cudf::column>> ret = table_result->release(); // TODO: Bank on RVO, eliminate variable.
+    return convert_for_return(env, ret, extra_columns);
 }
 
 static jlongArray convert_table_for_return(JNIEnv * env, std::unique_ptr<cudf::experimental::table> &table_result) {
@@ -658,12 +670,11 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
     );
 
     static const bool ASSUME_KEYS_ARE_PRE_SORTED(true);
-    auto groupby_keys_and_aggregation_result {
+    auto aggregation_results {
       groupby{cudf::table_view{groupby_keys}, ignore_null_keys, ASSUME_KEYS_ARE_PRE_SORTED}
         .windowed_aggregate(requests)
     };
 
-    auto& aggregation_results {groupby_keys_and_aggregation_result.second};
     // Copy results out.
     std::vector<std::unique_ptr<cudf::column>> result_columns;
     std::for_each(
@@ -679,7 +690,8 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
       }
     );
 
-    return cudf::jni::convert_table_for_return(env, groupby_keys_and_aggregation_result.first, result_columns);
+    std::vector<std::unique_ptr<cudf::column>> emptyExtraColumns;
+    return cudf::jni::convert_for_return(env, result_columns, emptyExtraColumns);
   }
   CATCH_STD(env, NULL);
 }

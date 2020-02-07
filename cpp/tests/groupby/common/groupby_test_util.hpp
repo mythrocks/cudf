@@ -55,7 +55,6 @@ inline void test_single_agg(column_view const& keys,
 inline void test_single_rolling_window_agg(
                             column_view const& keys,
                             column_view const& values,
-                            column_view const& expect_keys,
                             column_view const& expect_vals,
                             std::unique_ptr<experimental::aggregation>&& agg,
                             experimental::groupby::window_bounds const& window,
@@ -81,16 +80,11 @@ inline void test_single_rolling_window_agg(
 
 #if 0
     std::cout << "Results: \n";
-    cudf::test::print(*result.second[0].results[0], std::cout, "\t");
+    cudf::test::print(*results[0].results[0], std::cout, "\t");
     std::cout << "\n";
-
-    std::cout << "Checking the keys: \n";
-#endif
-    expect_tables_equal(table_view({expect_keys}), result.first->view());
-#if 0
     std::cout << "Checking the values: \n";
 #endif
-    expect_columns_equal(expect_vals, result.second[0].results[0]->view(), true);
+    expect_columns_equal(expect_vals, result[0].results[0]->view(), true);
 }
 
 inline auto all_valid() {

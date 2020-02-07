@@ -1054,12 +1054,11 @@ public final class Table implements AutoCloseable {
       // Use a tree map to make debugging simpler (columns are all in the same order)
       TreeMap<Integer, ColumnWindowOps> groupedOps = new TreeMap<>(); // Map agg-col-id -> Agg ColOp.
       // Total number of operations that will need to be done.
-      int keysLength = operation.indices.length;
       int totalOps = 0;
       for (int outputIndex = 0; outputIndex < windowAggregates.length; outputIndex++) {
         WindowAggregate agg = windowAggregates[outputIndex];
         ColumnWindowOps ops = groupedOps.computeIfAbsent(agg.getColumnIndex(), (idx) -> new ColumnWindowOps());
-        totalOps += ops.add(agg.getOp(), outputIndex + keysLength);
+        totalOps += ops.add(agg.getOp(), outputIndex);
       }
 
       int[] aggColumnIndexes = new int[totalOps];
@@ -1092,14 +1091,16 @@ public final class Table implements AutoCloseable {
       }
       try {
         // prepare the final table
-        ColumnVector[] finalCols = new ColumnVector[operation.indices.length + windowAggregates.length];
+        ColumnVector[] finalCols = new ColumnVector[windowAggregates.length];
 
+        /*
         // get the key columns
         for (int aggIndex = 0; aggIndex < operation.indices.length; aggIndex++) {
           finalCols[aggIndex] = aggregate.getColumn(aggIndex);
         }
+        */
 
-        int inputColumn = operation.indices.length;
+        int inputColumn = 0;
         // Now get the aggregation columns
         for (ColumnWindowOps ops : groupedOps.values()) {
           for (List<Integer> indices : ops.outputIndices()) {

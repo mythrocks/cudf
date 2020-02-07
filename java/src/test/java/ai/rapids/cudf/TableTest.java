@@ -1650,9 +1650,10 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
                                                  .build()) {
-      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2));
+           ColumnVector expectSortedAggColumn = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectSortedAggColumn, sortedAggColumn);
 
         WindowOptions window = WindowOptions.builder()
                                             .minPeriods(1)
@@ -1660,13 +1661,9 @@ public class TableTest extends CudfTestBase {
                                             .build();
 
         try (Table windowAggResults = sorted.groupBy(0, 1)
-                                            .aggregateWindows(WindowAggregate.count(3, window))) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2),
-              windowAggResults.getColumn(2));
+                                            .aggregateWindows(WindowAggregate.count(3, window));
+             ColumnVector expect = ColumnVector.fromBoxedInts(2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2)) {
+          assertColumnsAreEqual(expect, windowAggResults.getColumn(0));
         }
       }
     }
@@ -1679,9 +1676,10 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
                                                  .build()) {
-      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2));
+           ColumnVector expectSortedAggCol = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectSortedAggCol, sortedAggColumn);
 
         WindowOptions window = WindowOptions.builder()
                                             .minPeriods(1)
@@ -1689,13 +1687,9 @@ public class TableTest extends CudfTestBase {
                                             .build();
 
         try (Table windowAggResults = sorted.groupBy(0, 1)
-                                            .aggregateWindows(WindowAggregate.min(3, window))) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 5, 1, 1, 1, 7, 7, 2, 2, 0, 0, 0, 6),
-              windowAggResults.getColumn(2));
+                                            .aggregateWindows(WindowAggregate.min(3, window));
+             ColumnVector expect = ColumnVector.fromBoxedInts(5, 1, 1, 1, 7, 7, 2, 2, 0, 0, 0, 6)) {
+          assertColumnsAreEqual(expect, windowAggResults.getColumn(0));
         }
       }
     }
@@ -1708,9 +1702,10 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
                                                  .build()) {
-      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2));
+           ColumnVector expectSortedAggCol = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectSortedAggCol, sortedAggColumn);
 
         WindowOptions window = WindowOptions.builder()
                                             .minPeriods(1)
@@ -1718,13 +1713,9 @@ public class TableTest extends CudfTestBase {
                                             .build();
 
         try (Table windowAggResults = sorted.groupBy(0, 1)
-                                            .aggregateWindows(WindowAggregate.max(3, window))) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6),
-              windowAggResults.getColumn(2));
+                                            .aggregateWindows(WindowAggregate.max(3, window));
+             ColumnVector expect = ColumnVector.fromBoxedInts(7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6)) {
+          assertColumnsAreEqual(expect, windowAggResults.getColumn(0));
         }
       }
     }
@@ -1736,10 +1727,12 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3) // GBY Key
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
-                                                 .build()) {
+                                                 .build();
+         ColumnVector expectSortedAggColumn = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
+
       try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectSortedAggColumn, sortedAggColumn);
 
         WindowOptions window = WindowOptions.builder()
                                             .minPeriods(1)
@@ -1747,13 +1740,10 @@ public class TableTest extends CudfTestBase {
                                             .build();
 
         try (Table windowAggResults = sorted.groupBy(0, 1)
-                                            .aggregateWindows(WindowAggregate.sum(3, window))) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12),
-              windowAggResults.getColumn(2));
+                                            .aggregateWindows(WindowAggregate.sum(3, window));
+             ColumnVector expectAggResult = ColumnVector.fromBoxedInts(12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12);
+        ) {
+          assertColumnsAreEqual(expectAggResult, windowAggResults.getColumn(0));
         }
       }
     }
@@ -1766,9 +1756,10 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
                                                  .build()) {
-      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2));
+           ColumnVector expectedSortedAggCol = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectedSortedAggCol, sortedAggColumn);
 
         WindowOptions window = WindowOptions.builder()
                                             .minPeriods(1)
@@ -1776,13 +1767,9 @@ public class TableTest extends CudfTestBase {
                                             .build();
 
         try (Table windowAggResults = sorted.groupBy(0, 1)
-                                            .aggregateWindows(WindowAggregate.mean(3, window))) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 6, 4, 5, 5, 8, 8, 6, 5, 4, 4, 4, 6),
-              windowAggResults.getColumn(2));
+                                            .aggregateWindows(WindowAggregate.mean(3, window));
+             ColumnVector expect = ColumnVector.fromBoxedInts(6, 4, 5, 5, 8, 8, 6, 5, 4, 4, 4, 6)) {
+          assertColumnsAreEqual(expect, windowAggResults.getColumn(0));
         }
       }
     }
@@ -1795,9 +1782,10 @@ public class TableTest extends CudfTestBase {
                                                  .column( 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6) // OBY Key
                                                  .column( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6) // Agg Column
                                                  .build()) {
-      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2))) {
+      try (Table sorted = unsorted.orderBy(Table.asc(0), Table.asc(1), Table.asc(2));
+           ColumnVector expectedSortedAggCol = ColumnVector.fromBoxedInts(7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6)) {
         ColumnVector sortedAggColumn = sorted.getColumn(3);
-        assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 5, 1, 9, 7, 9, 8, 2, 8, 0, 6, 6), sortedAggColumn);
+        assertColumnsAreEqual(expectedSortedAggCol, sortedAggColumn);
 
         // Window (1,1), with a minimum of 1 reading.
         WindowOptions window_1 = WindowOptions.builder()
@@ -1823,19 +1811,15 @@ public class TableTest extends CudfTestBase {
                                                 WindowAggregate.max(3, window_1),
                                                 WindowAggregate.sum(3, window_2),
                                                 WindowAggregate.min(2, window_3)
-                                            )) {
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-              windowAggResults.getColumn(0));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3),
-              windowAggResults.getColumn(1));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12),
-              windowAggResults.getColumn(2));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6),
-              windowAggResults.getColumn(3));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( 13, 22, 22, 15, 24, 26, 26, 19, 14, 20, 20, 12),
-              windowAggResults.getColumn(4));
-          assertColumnsAreEqual(ColumnVector.fromBoxedInts( null, 1, 1, null, null, 3, 3, null, null, 5, 5, null),
-              windowAggResults.getColumn(5));
+                                            );
+             ColumnVector expect_0 = ColumnVector.fromBoxedInts(12, 13, 15, 10, 16, 24, 19, 10, 8, 14, 12, 12);
+             ColumnVector expect_1 = ColumnVector.fromBoxedInts(7, 7, 9, 9, 9, 9, 9, 8, 8, 8, 6, 6);
+             ColumnVector expect_2 = ColumnVector.fromBoxedInts(13, 22, 22, 15, 24, 26, 26, 19, 14, 20, 20, 12);
+             ColumnVector expect_3 = ColumnVector.fromBoxedInts(null, 1, 1, null, null, 3, 3, null, null, 5, 5, null)) {
+          assertColumnsAreEqual(expect_0, windowAggResults.getColumn(0));
+          assertColumnsAreEqual(expect_1, windowAggResults.getColumn(1));
+          assertColumnsAreEqual(expect_2, windowAggResults.getColumn(2));
+          assertColumnsAreEqual(expect_3, windowAggResults.getColumn(3));
         }
       }
     }

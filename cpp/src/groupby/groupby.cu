@@ -145,6 +145,7 @@ void verify_valid_requests(std::vector<aggregation_request> const& requests) {
 
 std::unique_ptr<column> rolling_window(column_view const& input,
                                        rmm::device_vector<cudf::size_type> const& group_offsets,
+                                       rmm::device_vector<cudf::size_type> const& group_labels,
                                        size_type preceding_window,
                                        size_type following_window,
                                        size_type min_periods,
@@ -230,7 +231,7 @@ detail::sort::sort_groupby_helper& groupby::helper() {
   return *_helper;
 };
 
-std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::windowed_aggregate(
+std::vector<aggregation_result> groupby::windowed_aggregate(
     std::vector<window_aggregation_request> const& requests,
     rmm::mr::device_memory_resource* mr) {
 
@@ -251,6 +252,7 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::wind
   }
 
   auto group_offsets = helper().group_offsets();
+  auto group_labels  = helper().group_labels();
   group_offsets.push_back(_keys.num_rows()); // Cap the end.
 
   std::vector<aggregation_result> results;
@@ -266,6 +268,7 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::wind
           return rolling_window(
             values,
             group_offsets,
+            group_labels,
             agg.first.preceding,
             agg.first.following,
             agg.first.min_periods,
@@ -278,7 +281,7 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::wind
     }
   );
 
-  return std::make_pair(std::make_unique<table>(_keys), std::move(results));
+  return std::move(results);
 }
 
 }  // namespace groupby

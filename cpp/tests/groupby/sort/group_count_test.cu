@@ -58,11 +58,10 @@ TYPED_TEST(groupby_count_test, basic_rolling_window)
     fixed_width_column_wrapper<V> vals        {  0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
     size_type preceding = 1, following = 1, min_periods = 1;
-    fixed_width_column_wrapper<K> expect_keys {  1, 1, 1, 1, 2, 2, 2, 2, 3, 3};
     fixed_width_column_wrapper<R> expect_vals ({ 2, 3, 3, 2, 2, 3, 3, 2, 2, 2}, all_valid());
 
     auto agg = cudf::experimental::make_count_aggregation();
-    test_single_rolling_window_agg(keys, vals, expect_keys, expect_vals, std::move(agg), 
+    test_single_rolling_window_agg(keys, vals, expect_vals, std::move(agg), 
         experimental::groupby::window_bounds{preceding, following, min_periods});
 }
 
