@@ -28,7 +28,6 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
-#include <thrust/binary_search.h>
 #include <thrust/functional.h>
 
 #include <memory>
@@ -170,26 +169,34 @@ std::unique_ptr<column> rolling_window(column_view const& input,
   //   2. [0, 1000] indicates a single group, spanning the entire column (thus, equivalent to no groups.)
   //   3. [0, 500, 1000] indicates two equal-sized groups: [0,500), and [500,1000).
 
+#ifndef NDEBUG
   CUDF_EXPECTS(group_offsets.size() >= 2 && group_offsets[0] == 0 
                && group_offsets[group_offsets.size()-1] == input.size(),
                "Must have at least one group.");
+#endif // NDEBUG
 
-  auto offsets_begin = group_offsets.begin(); // Required, since __device__ lambdas cannot capture by ref,
-  auto offsets_end   = group_offsets.end();   //   or capture local variables without listing them.
-
-  auto preceding_calculator = [offsets_begin, offsets_end, preceding_window] __device__ (size_type idx) {
-    // `upper_bound()` cannot return `offsets_end`, since it is capped with `input.size()`.
-    auto group_end = thrust::upper_bound(thrust::device, offsets_begin, offsets_end, idx);
-    auto group_start = group_end - 1; // The previous offset identifies the start of the group.
-    return thrust::minimum<size_type>{}(preceding_window, idx - (*group_start));
-  };
+  auto preceding_calculator = 
+    [
+      d_group_offsets = group_offsets.data().get(),
+      d_group_labels  = group_labels.data().get(),
+      preceding_window
+    ] __device__ (size_type idx) {
+      auto group_label = d_group_labels[idx];
+      auto group_start = d_group_offsets[group_label];
+      return thrust::minimum<size_type>{}(preceding_window, idx - group_start);
+    };
  
-  auto following_calculator = [offsets_begin, offsets_end, following_window] __device__ (size_type idx) {
-    // `upper_bound()` cannot return `offsets_end`, since it is capped with `input.size()`.
-    auto group_end = thrust::upper_bound(thrust::device, offsets_begin, offsets_end, idx);
-    return thrust::minimum<size_type>{}(following_window, (*group_end - 1) - idx);
-  };
-  
+  auto following_calculator = 
+    [
+      d_group_offsets = group_offsets.data().get(),
+      d_group_labels  = group_labels.data().get(),
+      following_window
+    ] __device__ (size_type idx) {
+      auto group_label = d_group_labels[idx];
+      auto group_end = d_group_offsets[group_label+1]; // Cannot fall off the end, since offsets is capped with `input.size()`.
+      return thrust::minimum<size_type>{}(following_window, (group_end - 1) - idx);
+    };
+
   return cudf::experimental::detail::rolling_window(
     input,
     thrust::make_transform_iterator(thrust::make_counting_iterator<size_type>(0), preceding_calculator),
