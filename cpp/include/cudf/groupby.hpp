@@ -104,6 +104,14 @@ struct window_aggregation_request {
     aggregations;  ///< Desired aggregations
 };
 
+struct time_range_window_aggregation_request {
+  column_view values; ///< the elements to aggregate
+  column_view timestamps;
+  std::vector<
+    std::pair<window_bounds, std::unique_ptr<aggregation>>> 
+    aggregations;  ///< Desired aggregations
+};
+
 /**
  * @brief The result(s) of an `aggregation_request`
  *
@@ -275,6 +283,10 @@ class groupby {
    */
   std::vector<aggregation_result> windowed_aggregate(
       std::vector<window_aggregation_request> const& requests,
+      rmm::mr::device_memory_resource* mr = rmm::mr::get_default_resource());
+
+  std::vector<aggregation_result> time_range_windowed_aggregate(
+      std::vector<time_range_window_aggregation_request> const& requests,
       rmm::mr::device_memory_resource* mr = rmm::mr::get_default_resource());
 
  private:
