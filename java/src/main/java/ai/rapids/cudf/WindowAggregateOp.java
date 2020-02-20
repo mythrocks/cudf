@@ -76,9 +76,14 @@ public class WindowAggregateOp implements Comparable<WindowAggregateOp> {
     }
 
     int compareFollowing = Integer.compare(this.windowOptions.getFollowing(), rhs.windowOptions.getFollowing());
+    if (compareFollowing != 0) {
+      return compareFollowing;
+    }
 
-    return compareFollowing != 0? compareFollowing :
+    int compareTimestampColumnIndex = Integer.compare(this.windowOptions.getTimestampColumnIndex(),
+        rhs.windowOptions.getTimestampColumnIndex());
+
+    return compareTimestampColumnIndex != 0? compareTimestampColumnIndex :
         Integer.compare(this.windowOptions.getMinPeriods(), rhs.windowOptions.getMinPeriods());
-
   }
 }
