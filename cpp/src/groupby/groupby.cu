@@ -153,6 +153,11 @@ groupby::groups groupby::get_groups(table_view values, rmm::mr::device_memory_re
   }
 }
 
+/*
+std::pair<rmm::device_vector<cudf::size_type>,  rmm::device_vector<cudf::size_type>> get_group_offsets_and_labels() {
+  return std::make_pair(helper().group_offsets(), helper().group_labels());
+}
+*/
 
 // Get the sort helper object
 detail::sort::sort_groupby_helper& groupby::helper() {

@@ -194,6 +194,7 @@ class groupby {
       rmm::mr::device_memory_resource* mr = rmm::mr::get_default_resource()
   );
 
+  // std::pair<rmm::device_vector<cudf::size_type>,  rmm::device_vector<cudf::size_type>> get_group_offsets_and_labels();
 
 private:
   table_view _keys;                    ///< Keys that determine grouping
