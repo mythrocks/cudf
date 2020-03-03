@@ -95,6 +95,19 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& grouping_keys,
                                                  rmm::mr::get_default_resource());
 
 /**
+ * FIXME: Documentation. Time-range based version of the above.
+**/
+std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grouping_keys,
+                                                          column_view const& timestamp_column,
+                                                          column_view const& input,
+                                                          size_type preceding_window,
+                                                          size_type following_window,
+                                                          size_type min_periods,
+                                                          std::unique_ptr<aggregation> const& aggr,
+                                                          rmm::mr::device_memory_resource* mr = 
+                                                            rmm::mr::get_default_resource());
+
+/**
  * @brief  Applies a variable-size rolling window function to the values in a column.
  *
  * This function aggregates values in a window around each element i of the input column, and
