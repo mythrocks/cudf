@@ -21,6 +21,8 @@
 #include <cudf/detail/copy.hpp>
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/structs/structs_column_view.hpp>
+#include <cudf/structs/structs_view.hpp>
 #include <cudf/strings/convert/convert_datetime.hpp>
 #include <cudf/table/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
@@ -499,6 +501,18 @@ struct column_view_printer {
 
     out.push_back(tmp);
   }
+
+  template <typename Element,
+            typename std::enable_if_t<std::is_same<Element, cudf::struct_view>::value>* = nullptr>
+  void operator()(cudf::column_view const& col,
+                  std::vector<std::string>& out,
+                  std::string const& indent)
+  {
+    std::string tmp{"CALEB: Struct!"};
+
+    out.push_back(tmp);
+  }
+ 
 };
 
 }  // namespace

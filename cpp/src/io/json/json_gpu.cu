@@ -269,6 +269,14 @@ __inline__ __device__ cudf::list_view decode_value(const char *data,
 {
   return cudf::list_view{};
 }
+template <>
+__inline__ __device__ cudf::struct_view decode_value(const char *data,
+                                                     long start,
+                                                     long end,
+                                                     ParseOptions const &opts)
+{
+  return cudf::struct_view{};
+}
 
 /**
  * @brief Functor for converting plain text data to cuDF data type value.

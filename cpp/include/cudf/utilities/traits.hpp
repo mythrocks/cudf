@@ -24,6 +24,7 @@
 #include <cudf/wrappers/timestamps.hpp>
 
 #include <type_traits>
+#include "cudf/structs/structs_view.hpp"
 
 namespace cudf {
 
@@ -432,7 +433,7 @@ template <typename T>
 constexpr inline bool is_compound()
 {
   return std::is_same<T, cudf::string_view>::value or std::is_same<T, cudf::dictionary32>::value or
-         std::is_same<T, cudf::list_view>::value;
+         std::is_same<T, cudf::list_view>::value or std::is_same<T, cudf::struct_view>::value;
 }
 
 struct is_compound_impl {
