@@ -28,6 +28,7 @@
 #include <cudf/table/table_device_view.cuh>
 #include <cudf/utilities/bit.hpp>
 
+#include <sstream>
 #include <tests/utilities/column_wrapper.hpp>
 #include <tests/utilities/cudf_gtest.hpp>
 
@@ -384,6 +385,23 @@ std::string get_nested_type_str(cudf::column_view const& view)
     return cudf::jit::get_type_name(view.type()) + "<" +
            (lcv.size() > 0 ? get_nested_type_str(lcv.child()) : "") + ">";
   }
+  
+  if (view.type().id() == cudf::type_id::STRUCT) {
+
+    std::ostringstream out;
+
+    out << cudf::jit::get_type_name(view.type()) + "<";
+    // std::for_each(view.child_begin(), view.child_end(), [&out](auto col){ out << get_nested_type_str(col);});
+    std::transform(
+      view.child_begin(),
+      view.child_end(),
+      std::ostream_iterator<std::string>(out, ","),
+      [&out](auto const col) {return get_nested_type_str(col);}
+    );
+    out << ">";
+    return out.str();
+  }
+
   return cudf::jit::get_type_name(view.type());
 }
 
@@ -508,11 +526,25 @@ struct column_view_printer {
                   std::vector<std::string>& out,
                   std::string const& indent)
   {
-    std::string tmp{"CALEB: Struct!"};
+    structs_column_view view{col};
 
-    out.push_back(tmp);
+    std::ostringstream out_stream;
+
+    out_stream << get_nested_type_str(col) << ":\n"
+               << indent << "Length : " << view.size() << ":\n";
+    if (view.has_nulls()) {
+      out_stream << indent << "Null count: " << view.null_count() << "\n"
+                 << detail::to_string(bitmask_to_host(col), col.size(), indent) << "\n";
+    }
+
+    std::transform(
+      view.child_begin(), view.child_end(), 
+      std::ostream_iterator<std::string>(out_stream, "\n"),
+      [&](auto child_column) {return detail::to_string(child_column, ", ", indent + "    ");}
+    );
+
+    out.push_back(out_stream.str());
   }
- 
 };
 
 }  // namespace

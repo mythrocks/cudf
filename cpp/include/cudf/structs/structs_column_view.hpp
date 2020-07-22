@@ -35,6 +35,14 @@ class structs_column_view : private column_view
 
         explicit structs_column_view(column_view const& rhs);
 
+        using column_view::has_nulls;
+        using column_view::null_count;
+        using column_view::null_mask;
+        using column_view::offset;
+        using column_view::size;
+        using column_view::child_begin;
+        using column_view::child_end;
+
 }; // class structs_column_view;
 
 } // namespace cudf;
