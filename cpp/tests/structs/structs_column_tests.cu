@@ -226,24 +226,37 @@ TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest)
 
 TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest2)
 {
-  auto ref = cudf::test::structs_column_wrapper::ref;
+  using namespace cudf::test;
+  auto ref = structs_column_wrapper::ref;
 
-  auto names_col = cudf::test::strings_column_wrapper{
+  auto names_col = strings_column_wrapper{
     "Samuel Vimes",
     "Carrot Ironfoundersson",
     "Angua von Uberwald"
   };
 
-  auto ages_col = cudf::test::fixed_width_column_wrapper<int8_t>{
+  auto ages_col = fixed_width_column_wrapper<int8_t>{
     {48, 23, 103}, 
     {1, 1, 0}
   };
 
-  cudf::test::structs_column_wrapper struct_col {
+  auto struct_col = structs_column_wrapper {
     {ref(names_col), ref(ages_col)}, {}
-  };
+  }.release();
 
-  cudf::test::print(struct_col);
+  auto struct_view {struct_col->view()};
+  print(struct_view);
+
+  expect_columns_equal(struct_view.child(0), strings_column_wrapper{
+    "Samuel Vimes",
+    "Carrot Ironfoundersson",
+    "Angua von Uberwald"
+  });
+  
+  expect_columns_equal(struct_view.child(1), fixed_width_column_wrapper<int8_t>{
+    {48, 23, 104}, {1, 1, 0}
+  });
+
 }
 
 
