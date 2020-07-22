@@ -195,77 +195,6 @@ TEST_F(StructColumnWrapperTest, SimpleStructTest)
   
 }
 
-namespace cudf
-{
-  namespace test 
-  {
-    class structs_column_wrapper : public detail::column_wrapper
-    {
-      public:
-
-        structs_column_wrapper(std::vector<std::unique_ptr<cudf::column>>&& child_columns, std::vector<bool> const& validity = {})
-        {
-          init(std::move(child_columns), validity);
-          /*
-          size_type num_rows = child_columns.empty()? 0 : child_columns[0]->size();
-
-          CUDF_EXPECTS(
-            std::all_of(child_columns.begin(), child_columns.end(), [&](auto const& p_column) {return p_column->size() == num_rows;}), 
-            "All struct member columns must have the same row count."
-          );
-
-          CUDF_EXPECTS(
-            validity.size() <= 0 || static_cast<size_type>(validity.size()) == num_rows,
-            "Validity buffer must have as many elements as rows in the struct column."
-          );
-
-          wrapped = cudf::make_structs_column(
-            num_rows, 
-            std::move(child_columns), 
-            validity.size() <= 0? 0 : cudf::UNKNOWN_NULL_COUNT,
-            validity.size() <= 0? rmm::device_buffer{0} : detail::make_null_mask(validity.begin(), validity.end()));
-            */
-        }
-
-        structs_column_wrapper(std::initializer_list<std::reference_wrapper<detail::column_wrapper>> child_columns, std::vector<bool> const& validity = {})
-        {
-          std::vector<std::unique_ptr<cudf::column>> released;
-          released.reserve(child_columns.size());
-          std::transform(
-            child_columns.begin(), 
-            child_columns.end(), 
-            std::back_inserter(released), 
-            [&](auto column_wrapper){return column_wrapper.get().release();}
-          );
-          init(std::move(released), validity);
-        }
-
-      private:
-
-        void init(std::vector<std::unique_ptr<cudf::column>>&& child_columns, std::vector<bool> const& validity)
-        {
-          size_type num_rows = child_columns.empty()? 0 : child_columns[0]->size();
-
-          CUDF_EXPECTS(
-            std::all_of(child_columns.begin(), child_columns.end(), [&](auto const& p_column) {return p_column->size() == num_rows;}), 
-            "All struct member columns must have the same row count."
-          );
-
-          CUDF_EXPECTS(
-            validity.size() <= 0 || static_cast<size_type>(validity.size()) == num_rows,
-            "Validity buffer must have as many elements as rows in the struct column."
-          );
-
-          wrapped = cudf::make_structs_column(
-            num_rows, 
-            std::move(child_columns), 
-            validity.size() <= 0? 0 : cudf::UNKNOWN_NULL_COUNT,
-            validity.size() <= 0? rmm::device_buffer{0} : detail::make_null_mask(validity.begin(), validity.end()));
-        }
-    };
-  }
-}
-
 
 TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest)
 {
@@ -287,20 +216,17 @@ TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest)
   cols.emplace_back(names_col.release());
   cols.emplace_back(ages_col.release());
 
-  // auto struct_col = cudf::make_structs_column(2, std::move(cols), 0, {});
   cudf::test::structs_column_wrapper struct_col {
     std::move(cols)
   };
 
-  std::cout << "Printing struct column: \n";
   cudf::test::print(struct_col.operator cudf::column_view());
-  
 }
 
 
 TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest2)
 {
-  std::cout << "CALEB: Testing Struct Column!\n";
+  auto ref = cudf::test::structs_column_wrapper::ref;
 
   auto names_col = cudf::test::strings_column_wrapper{
     "Samuel Vimes",
@@ -314,12 +240,11 @@ TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest2)
   };
 
   cudf::test::structs_column_wrapper struct_col {
-    {std::ref(static_cast<cudf::test::detail::column_wrapper&>(names_col)), std::ref(static_cast<cudf::test::detail::column_wrapper&>(ages_col))}, {}
+    {ref(names_col), ref(ages_col)}, {}
   };
 
-  std::cout << "Printing struct column: \n";
-  cudf::test::print(struct_col.operator cudf::column_view());
-  
+  cudf::test::print(struct_col);
 }
+
 
 CUDF_TEST_PROGRAM_MAIN()
