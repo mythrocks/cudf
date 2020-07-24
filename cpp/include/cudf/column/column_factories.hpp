@@ -504,7 +504,7 @@ std::unique_ptr<cudf::column> make_lists_column(
 
 std::unique_ptr<cudf::column> make_structs_column(
   size_type num_rows,
-  std::vector<std::unique_ptr<column>> child_column,
+  std::vector<std::unique_ptr<column>>&& child_column,
   size_type null_count,
   rmm::device_buffer&& null_mask,
   cudaStream_t stream                 = 0,

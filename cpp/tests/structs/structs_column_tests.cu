@@ -53,115 +53,6 @@ using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
 using Table = cudf::table;
 using size_type = cudf::size_type;
 
-void myth() 
-{
-  auto prev_col = cudf::test::fixed_width_column_wrapper<cudf::size_type>{ 1, 2, 2, 2, 2, 1, 2, 2, 2 }.release();
-  auto foll_col = cudf::test::fixed_width_column_wrapper<cudf::size_type>{ 1, 1, 1, 1, 0, 1, 1, 1, 0 }.release();
-
-  auto prev = prev_col->view();
-  auto foll = foll_col->view();
-
-  EXPECT_EQ(prev.size(), foll.size());
-
-  const int INPUT_SIZE {prev.size()};
-
-  auto gather_map_size {
-    thrust::reduce(thrust::device, prev.begin<size_type>(), prev.end<size_type>(), 0, thrust::plus<size_type>{})
-    +
-    thrust::reduce(thrust::device, foll.begin<size_type>(), foll.end<size_type>(), 0, thrust::plus<size_type>{})
-  };
-
-  std::cout << "gather_map_size == " << gather_map_size << std::endl;
-
-  auto offsets_col = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32}, INPUT_SIZE+1);
-  auto offsets{offsets_col->mutable_view()};
-
-  // Add prev and foll.
-  thrust::transform(
-    thrust::device,
-    prev.begin<size_type>(), prev.end<size_type>(),
-    foll.begin<size_type>(),
-    offsets.begin<size_type>(),
-    thrust::plus<size_type>()
-  );
-
-  std::cout << "Sums: " << std::endl; 
-  cudf::test::print(offsets);
-
-  // Cumulative sums, for start offsets, via exclusive_scan.
-  thrust::exclusive_scan(thrust::device, offsets.begin<size_type>(), offsets.end<size_type>()+1, offsets.begin<size_type>());
-
-  auto p_gather_map = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32}, gather_map_size);
-  auto gather_map = p_gather_map->mutable_view();
-
-
-  std::cout << "Cumulative sums: " << std::endl;
-  cudf::test::print(offsets);
-
-  auto write_gather_map_entries = [
-      gather_map = gather_map.data<size_type>(),
-      offsets = offsets.data<size_type>(),
-      prev = prev.data<size_type>(),
-      foll = foll.data<size_type>()
-    ] __device__ (auto i)
-  {
-    auto out_start = gather_map + offsets[i];
-    auto num_entries = prev[i] + foll[i];
-    thrust::sequence(thrust::seq, out_start, out_start+num_entries, i-prev[i]+1);
-  };
-
-  thrust::for_each(
-    thrust::device,
-    thrust::make_counting_iterator(0), 
-    thrust::make_counting_iterator(INPUT_SIZE), 
-    write_gather_map_entries
-  );
-
-  std::cout << "Gather Map: " << std::endl;
-  cudf::test::print(gather_map);
-
-  // Gather map is now in place.
-
-  // auto input_col = cudf::test::fixed_width_column_wrapper<int8_t> {
-    // 'A', 'B', 'C', 'D', 'E', 'W', 'X', 'Y', 'Z'
-  // };
-
-  auto input_col = cudf::test::lists_column_wrapper<int8_t> {
-    {11},
-    {22, 22},
-    {33},
-    {44, 44},
-    {55},
-    {66, 66}, 
-    {77},
-    {88, 88},
-    {99}
-  };
-
-  vector_of_columns cols;
-  cols.push_back(input_col.release());
-
-  Table table{std::move(cols)};
-
-  std::cout << "Printing input table: " << std::endl;
-  cudf::test::print(table.view().column(0));
-
-  auto gathered = cudf::gather(table.view(), gather_map)->release();
-  std::cout << "Results from cudf::gather() (size == " << gathered[0]->size() << ")\n";
-  cudf::test::print(*gathered[0]);
-  std::cout << "Using offsets: (Size == " << offsets_col->size() << ") \n";
-  cudf::test::print(*offsets_col);
-
-  auto lists_result = cudf::make_lists_column(INPUT_SIZE, std::move(offsets_col), std::move(gathered[0]), 0, rmm::device_buffer{0});
-  std::cout << "Lists result: \n";
-  cudf::test::print(*lists_result);
-}
-
-TYPED_TEST(MythListColumnWrapperTestTyped, MythExperimentGatherMap)
-{
-  myth();
-}
-
 struct StructColumnWrapperTest : public cudf::test::BaseFixture
 {};
 
@@ -259,5 +150,43 @@ TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTest2)
 
 }
 
+TEST_F(StructColumnWrapperTest, SimpleStructColumnWrapperTestWithValidity)
+{
+  using namespace cudf::test;
+  auto ref = structs_column_wrapper::ref;
+
+  auto names_col = strings_column_wrapper{
+    {
+    "Samuel Vimes",
+    "Carrot Ironfoundersson",
+    "Angua von Uberwald"
+    },
+    {0, 1, 1}
+  };
+
+  auto ages_col = fixed_width_column_wrapper<int8_t>{
+    {48, 23, 103}, {1, 1, 0}
+  };
+
+  auto struct_col = structs_column_wrapper {
+    {ref(names_col), ref(ages_col)}, {1,0,1}
+  }.release();
+
+  auto struct_view {struct_col->view()};
+  print(struct_view);
+
+  /*
+  expect_columns_equal(struct_view.child(0), strings_column_wrapper{
+    "Samuel Vimes",
+    "Carrot Ironfoundersson",
+    "Angua von Uberwald"
+  });
+  
+  expect_columns_equal(struct_view.child(1), fixed_width_column_wrapper<int8_t>{
+    {48, 23, 104}, {1, 1, 0}
+  });
+  */
+
+}
 
 CUDF_TEST_PROGRAM_MAIN()
