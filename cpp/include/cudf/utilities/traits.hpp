@@ -475,7 +475,8 @@ constexpr inline bool is_compound(data_type type)
 template <typename T>
 constexpr inline bool is_nested()
 {
-  return std::is_same<T, cudf::list_view>::value;
+  return std::is_same<T, cudf::list_view>::value 
+      || std::is_same<T, cudf::struct_view>::value;
 }
 
 struct is_nested_impl {

@@ -119,8 +119,6 @@ rmm::device_buffer bitmask_and(std::vector<bitmask_type const *> const &masks,
 
 }}
 
-#include <iostream>
-
 namespace cudf
 {
 
@@ -149,7 +147,6 @@ namespace cudf
         {
           if (!p_child->nullable())
           {
-            std::cout << "CALEB: Child is nullable!\n";
             p_child->set_null_mask(std::move(rmm::device_buffer{parent_null_mask, stream, mr})); 
             p_child->set_null_count(parent_null_count);
           }
@@ -158,16 +155,11 @@ namespace cudf
             auto data_type{p_child->type()};
             auto num_rows{p_child->size()};
 
-            std::cout << "CALEB: For column of type " << static_cast<int>(data_type.id()) << std::endl;
-
             // All this to reset the null mask. :/
             cudf::column::contents contents{p_child->release()};
             std::vector<bitmask_type const*> masks {
               reinterpret_cast<bitmask_type const*>(parent_null_mask.data()), 
               reinterpret_cast<bitmask_type const*>(contents.null_mask->data())};
-            
-            std::cout << "CALEB: Parent null mask: " << (parent_null_mask.data() == nullptr? "NULL" : "NON_NULL") << std::endl;
-            std::cout << "CALEB: Child  null mask: " << (contents.null_mask->data() == nullptr? "NULL" : "NON_NULL") << std::endl;
             
             rmm::device_buffer new_child_mask = bitmask_and(masks, {0, 0}, num_rows, stream, mr);
 
