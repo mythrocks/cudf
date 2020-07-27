@@ -171,6 +171,13 @@ namespace cudf
             
             rmm::device_buffer new_child_mask = bitmask_and(masks, {0, 0}, num_rows, stream, mr);
 
+            // Recurse for struct members.
+            // Push down recomputed child mask to child columns of the current child.
+            if (data_type.id() == cudf::type_id::STRUCT)
+            {
+              superimpose_validity(new_child_mask, UNKNOWN_NULL_COUNT, contents.children, stream, mr);
+            }
+
             // Reconstitute the column.
             p_child.reset(
               new column(
