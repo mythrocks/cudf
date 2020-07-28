@@ -232,7 +232,7 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestColumnWrapperConstruction)
 }
 
 
-TEST_F(StructColumnWrapperTest, TestStructsContainingLists)
+TYPED_TEST(TypedStructColumnWrapperTest, TestStructsContainingLists)
 {
   // Test structs with two members:
   //  1. Name: String
@@ -253,7 +253,7 @@ TEST_F(StructColumnWrapperTest, TestStructsContainingLists)
   int num_rows {names_col->size()}; 
 
   // `List` member.
-  auto lists_col = cudf::test::lists_column_wrapper<int32_t>{
+  auto lists_col = cudf::test::lists_column_wrapper<TypeParam>{
       {1,2,3},
       {4},
       {5,6},
@@ -287,7 +287,7 @@ TEST_F(StructColumnWrapperTest, TestStructsContainingLists)
   //         and offsets match perfectly.
   //         This causes two "equivalent lists" to compare unequal, if the data columns
   //         have different values at an index where the value is null.
-  auto expected_last_two_lists_col = cudf::test::lists_column_wrapper<int32_t>{
+  auto expected_last_two_lists_col = cudf::test::lists_column_wrapper<TypeParam>{
     {
       {1,2,3},
       {4},
@@ -303,6 +303,90 @@ TEST_F(StructColumnWrapperTest, TestStructsContainingLists)
   // cudf::test::expect_columns_equal(
   //  struct_col->view().child(1), 
   //  expected_last_two_lists_col->view());
+}
+
+
+TYPED_TEST(TypedStructColumnWrapperTest, StructOfStructs)
+{
+   auto names = {
+    "Samuel Vimes",
+    "Carrot Ironfoundersson",
+    "Angua von Uberwald",
+    "Cheery Littlebottom",
+    "Detritus", 
+    "Mr Slant"
+  };
+
+  // `Name` column has all valid values.
+  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()}.release();
+
+  int num_rows {names_col->size()};
+
+  auto ages_col = 
+    cudf::test::fixed_width_column_wrapper<int32_t>{
+      {48, 27, 25, 31, 351, 351}, 
+      { 1,  1,  1,  1,   1,   0}
+    }.release();
+
+  vector_of_columns cols1;
+  cols1.emplace_back(std::move(names_col));
+  cols1.emplace_back(std::move(ages_col));
+
+  auto struct_1 = cudf::test::structs_column_wrapper(std::move(cols1), {1, 1, 1, 1, 0, 1}).release();
+
+  std::cout << "CALEB: First level struct:\n";
+  cudf::test::print(*struct_1);
+
+  auto is_human_col =
+    cudf::test::fixed_width_column_wrapper<bool>{
+      {true, true, false, false, false, false},
+      {   1,    1,     0,     1,     1,     0}
+    }.release(); 
+
+  vector_of_columns cols2;
+  cols2.emplace_back(std::move(is_human_col));
+  cols2.emplace_back(std::move(struct_1));
+  
+  auto struct_2 = cudf::test::structs_column_wrapper(std::move(cols2), {0, 1, 1, 1, 1, 1}).release();
+
+  std::cout << "CALEB: Second level struct:\n";
+  cudf::test::print(*struct_2);
+
+  // Verify that the child/grandchild columns are as expected.
+  auto expected_names_col = cudf::test::strings_column_wrapper(
+    names.begin(), 
+    names.end(), 
+    cudf::test::make_counting_transform_iterator(0, [](auto i){ return i!=0 && i!=4; })).release();
+
+  cudf::test::expect_columns_equal(*expected_names_col, struct_2->child(1).child(0));
+
+  auto expected_ages_col = cudf::test::fixed_width_column_wrapper<int32_t>{
+    {48, 27, 25, 31, 351, 351}, 
+    { 0,  1,  1,  1,   0,   0}
+  }.release();
+  cudf::test::expect_columns_equal(*expected_ages_col, struct_2->child(1).child(1));
+
+  auto expected_bool_col = cudf::test::fixed_width_column_wrapper<bool> {
+    {true, true, false, false, false, false},
+    {   0,    1,     0,     1,     1,     0}
+  }.release();
+
+  cudf::test::expect_columns_equal(*expected_bool_col, struct_2->child(0));
+
+  // Verify that recursive struct columns may be compared 
+  // using expect_columns_equal.
+
+  vector_of_columns expected_cols_1;
+  expected_cols_1.emplace_back(std::move(expected_names_col));
+  expected_cols_1.emplace_back(std::move(expected_ages_col));
+  auto expected_struct_1 = cudf::test::structs_column_wrapper(std::move(expected_cols_1), {1, 1, 1, 1, 0, 1}).release();
+
+  vector_of_columns expected_cols_2;
+  expected_cols_2.emplace_back(std::move(expected_bool_col));
+  expected_cols_2.emplace_back(std::move(expected_struct_1));
+  auto expected_struct_2 = cudf::test::structs_column_wrapper(std::move(expected_cols_2), {0, 1, 1, 1, 1, 1}).release();
+
+  cudf::test::expect_columns_equal(*expected_struct_2, *struct_2);
 }
 
 
