@@ -227,8 +227,7 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestColumnWrapperConstruction)
   auto expected_struct_col =
     cudf::test::structs_column_wrapper{std::move(expected_children), {1, 1, 1, 0, 1, 1}}.release();
 
-  // cudf::test::expect_columns_equal(struct_col_view, expected_struct_col->view()); // WHY IS THIS BROKEN?
-  // cudf::test::expect_columns_equal(struct_col_view, struct_col_view); // WHY IS THIS BROKEN?
+  cudf::test::expect_columns_equal(struct_col_view, expected_struct_col->view()); 
 }
 
 
@@ -240,7 +239,7 @@ TEST_F(StructColumnWrapperTest, SimpleTestExpectStructColumnsEqual)
   cols.emplace_back(std::move(ints_col));
   auto structs_col = cudf::test::structs_column_wrapper{std::move(cols)};
   
-  // cudf::test::expect_columns_equal(structs_col, structs_col);
+  cudf::test::expect_columns_equal(structs_col, structs_col);
 }
 
 

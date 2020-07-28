@@ -15,7 +15,9 @@
  */
 
 #include "column_utilities.hpp"
+#include "cudf/utilities/type_dispatcher.hpp"
 #include "detail/column_utilities.hpp"
+#include "thrust/iterator/counting_iterator.h"
 
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
@@ -260,6 +262,28 @@ struct column_comparator_impl<list_view, check_exact_equality> {
   }
 };
 
+template <bool check_exact_equality>
+struct column_comparator_impl<struct_view, check_exact_equality> {
+  void operator()(column_view const& lhs,
+                  column_view const& rhs,
+                  bool print_all_differences,
+                  int depth)
+  {
+    std::for_each(
+      thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(0) + lhs.num_children(),
+      [&](auto i) {
+        cudf::type_dispatcher(
+          lhs.child(i).type(), 
+          column_comparator<check_exact_equality>{}, 
+          lhs.child(i), 
+          rhs.child(i), 
+          print_all_differences, depth+1);
+      }
+    );
+  }
+};
+ 
 template <bool check_exact_equality>
 struct column_comparator {
   template <typename T>
