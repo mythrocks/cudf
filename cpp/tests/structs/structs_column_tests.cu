@@ -30,6 +30,7 @@
 #include <tests/utilities/type_lists.hpp>
 #include "cudf/column/column_factories.hpp"
 #include "cudf/detail/utilities/device_operators.cuh"
+#include "cudf/table/table_view.hpp"
 #include "cudf/types.hpp"
 #include "cudf/utilities/error.hpp"
 #include "gtest/gtest.h"
@@ -228,6 +229,80 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestColumnWrapperConstruction)
     cudf::test::structs_column_wrapper{std::move(expected_children), {1, 1, 1, 0, 1, 1}}.release();
 
   cudf::test::expect_columns_equal(struct_col_view, expected_struct_col->view()); 
+}
+
+
+TEST_F(StructColumnWrapperTest, TestStructsContainingLists)
+{
+  // Test structs with two members:
+  //  1. Name: String
+  //  2. List: List<TypeParam>
+
+  auto names = {
+    "Samuel Vimes",
+    "Carrot Ironfoundersson",
+    "Angua von Uberwald",
+    "Cheery Littlebottom",
+    "Detritus", 
+    "Mr Slant"
+  };
+
+  // `Name` column has all valid values.
+  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()}.release();
+
+  int num_rows {names_col->size()}; 
+
+  // `List` member.
+  auto lists_col = cudf::test::lists_column_wrapper<int32_t>{
+      {1,2,3},
+      {4},
+      {5,6},
+      {},
+      {7,8},
+      {9}
+  }.release();
+
+  vector_of_columns cols;
+  cols.emplace_back(std::move(names_col));
+  cols.emplace_back(std::move(lists_col));
+
+  // Construct a Struct column of 6 rows, with the last two values set to null.
+  auto struct_col = cudf::test::structs_column_wrapper{std::move(cols), {1, 1, 1, 1, 0, 0}}.release();
+
+  // Check that the last two rows are null for all members.
+  
+  // For `Name` member, indices 4 and 5 are null.
+  auto expected_names_col = cudf::test::strings_column_wrapper{
+    names.begin(), 
+    names.end(),
+    cudf::test::make_counting_transform_iterator(0, [](auto i) { return i<4; } )
+  }.release();
+
+  cudf::test::expect_columns_equal(struct_col->view().child(0), expected_names_col->view());
+  
+  // For the `List` member, indices 4, 5 should be null.
+  // FIXME:  The way list columns are currently compared is not ideal for testing
+  //         structs' list members. Rather than comparing for equivalence, 
+  //         column_comparator_impl<list_view> currently checks that list's data (child)
+  //         and offsets match perfectly.
+  //         This causes two "equivalent lists" to compare unequal, if the data columns
+  //         have different values at an index where the value is null.
+  auto expected_last_two_lists_col = cudf::test::lists_column_wrapper<int32_t>{
+    {
+      {1,2,3},
+      {4},
+      {5,6},
+      {},
+      {7,8}, // Null.
+      {9}    // Null.
+    },
+    cudf::test::make_counting_transform_iterator(0, [](auto i) { return i==0; })
+  }.release();
+  
+  // FIXME: Uncomment after list comparison is fixed.
+  // cudf::test::expect_columns_equal(
+  //  struct_col->view().child(1), 
+  //  expected_last_two_lists_col->view());
 }
 
 
