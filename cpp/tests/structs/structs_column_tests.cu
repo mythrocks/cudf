@@ -40,19 +40,6 @@
 #include "thrust/scan.h"
 #include "thrust/sequence.h"
 
-/*
-template <typename T>
-struct MythListColumnWrapperTestTyped : public cudf::test::BaseFixture {
-  MythListColumnWrapperTestTyped() {}
-
-  auto data_type() { return cudf::data_type{cudf::type_to_id<T>()}; }
-};
-
-using MythTestTypes = cudf::test::Concat<cudf::test::Types<int32_t>>;
-
-TYPED_TEST_CASE(MythListColumnWrapperTestTyped, MythTestTypes);
-*/
-
 using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
 using cudf::size_type;
 
@@ -145,37 +132,39 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestColumnFactoryConstruction)
 // When the struct row is null, the child column value must be null.
 TYPED_TEST(TypedStructColumnWrapperTest, TestColumnWrapperConstruction)
 {
-
-  auto names_col = cudf::test::strings_column_wrapper{
+  std::initializer_list<std::string> names = {
     "Samuel Vimes",
     "Carrot Ironfoundersson",
     "Angua von Uberwald",
     "Cheery Littlebottom",
     "Detritus", 
     "Mr Slant"
-  }.release();
+  };
 
-  int num_rows {names_col->size()};
+  auto num_rows {std::distance(names.begin(), names.end())};
+
+  auto names_col = cudf::test::strings_column_wrapper{
+    names.begin(),
+    names.end()
+  };
 
   auto ages_col = 
     cudf::test::fixed_width_column_wrapper<TypeParam>{
       {48, 27, 25, 31, 351, 351}, 
       { 1,  1,  1,  1,   1,   0}
-    }.release();
+    };
     
   auto is_human_col =
     cudf::test::fixed_width_column_wrapper<bool>{
       {true, true, false, false, false, false},
       {   1,    1,     0,     1,     1,     0}
-    }.release();
-
-  vector_of_columns cols;
-  cols.push_back(std::move(names_col));
-  cols.push_back(std::move(ages_col));
-  cols.push_back(std::move(is_human_col));
+    };
 
   auto struct_col = 
-    cudf::test::structs_column_wrapper{std::move(cols), {1, 1, 1, 0, 1, 1}}.release();
+    cudf::test::structs_column_wrapper{ 
+      {names_col, ages_col, is_human_col}, 
+      {1, 1, 1, 0, 1, 1}
+    }.release();
 
   EXPECT_EQ(num_rows, struct_col->size());
 
@@ -194,14 +183,7 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestColumnWrapperConstruction)
   vector_of_columns expected_children;
   expected_children.emplace_back(
     cudf::test::strings_column_wrapper{
-      {
-        "Samuel Vimes",
-        "Carrot Ironfoundersson",
-        "Angua von Uberwald",
-        "Cheery Littlebottom",
-        "Detritus",
-        "Mr Slant"
-      }, 
+      names,
       {1, 1, 1, 0, 1, 1}
     }.release()
   );
@@ -238,7 +220,7 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestStructsContainingLists)
   //  1. Name: String
   //  2. List: List<TypeParam>
 
-  auto names = {
+  std::initializer_list<std::string> names = {
     "Samuel Vimes",
     "Carrot Ironfoundersson",
     "Angua von Uberwald",
@@ -247,10 +229,10 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestStructsContainingLists)
     "Mr Slant"
   };
 
-  // `Name` column has all valid values.
-  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()}.release();
+  auto num_rows {std::distance(names.begin(), names.end())}; 
 
-  int num_rows {names_col->size()}; 
+  // `Name` column has all valid values.
+  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()};
 
   // `List` member.
   auto lists_col = cudf::test::lists_column_wrapper<TypeParam>{
@@ -260,14 +242,13 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestStructsContainingLists)
       {},
       {7,8},
       {9}
-  }.release();
-
-  vector_of_columns cols;
-  cols.emplace_back(std::move(names_col));
-  cols.emplace_back(std::move(lists_col));
+  };
 
   // Construct a Struct column of 6 rows, with the last two values set to null.
-  auto struct_col = cudf::test::structs_column_wrapper{std::move(cols), {1, 1, 1, 1, 0, 0}}.release();
+  auto struct_col = cudf::test::structs_column_wrapper{
+    {names_col, lists_col}, 
+    {1, 1, 1, 1, 0, 0}
+  }.release();
 
   // Check that the last two rows are null for all members.
   
@@ -308,7 +289,9 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestStructsContainingLists)
 
 TYPED_TEST(TypedStructColumnWrapperTest, StructOfStructs)
 {
-   auto names = {
+  // Struct<is_human:bool, Struct<names:string, ages:int>>
+
+  auto names = {
     "Samuel Vimes",
     "Carrot Ironfoundersson",
     "Angua von Uberwald",
@@ -317,40 +300,32 @@ TYPED_TEST(TypedStructColumnWrapperTest, StructOfStructs)
     "Mr Slant"
   };
 
-  // `Name` column has all valid values.
-  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()}.release();
+  auto num_rows {std::distance(names.begin(), names.end())};
 
-  int num_rows {names_col->size()};
+  // `Name` column has all valid values.
+  auto names_col = cudf::test::strings_column_wrapper{names.begin(), names.end()};
 
   auto ages_col = 
     cudf::test::fixed_width_column_wrapper<int32_t>{
       {48, 27, 25, 31, 351, 351}, 
       { 1,  1,  1,  1,   1,   0}
-    }.release();
+    };
 
-  vector_of_columns cols1;
-  cols1.emplace_back(std::move(names_col));
-  cols1.emplace_back(std::move(ages_col));
-
-  auto struct_1 = cudf::test::structs_column_wrapper(std::move(cols1), {1, 1, 1, 1, 0, 1}).release();
-
-  std::cout << "CALEB: First level struct:\n";
-  cudf::test::print(*struct_1);
+  auto struct_1 = cudf::test::structs_column_wrapper{
+    {names_col, ages_col},
+    {1, 1, 1, 1, 0, 1}
+  };
 
   auto is_human_col =
     cudf::test::fixed_width_column_wrapper<bool>{
       {true, true, false, false, false, false},
       {   1,    1,     0,     1,     1,     0}
-    }.release(); 
+    }; 
 
-  vector_of_columns cols2;
-  cols2.emplace_back(std::move(is_human_col));
-  cols2.emplace_back(std::move(struct_1));
-  
-  auto struct_2 = cudf::test::structs_column_wrapper(std::move(cols2), {0, 1, 1, 1, 1, 1}).release();
-
-  std::cout << "CALEB: Second level struct:\n";
-  cudf::test::print(*struct_2);
+  auto struct_2 = cudf::test::structs_column_wrapper{
+    {is_human_col, struct_1},
+    {0, 1, 1, 1, 1, 1}
+  }.release();
 
   // Verify that the child/grandchild columns are as expected.
   auto expected_names_col = cudf::test::strings_column_wrapper(
