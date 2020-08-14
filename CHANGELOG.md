@@ -2,11 +2,17 @@
 
 ## New Features
 
+- PR #5974 Use libcudf instead of cupy for `arange` or column creation from a scalar.
+
 ## Improvements
 
+- PR #5953 Use stable sort when doing a sort groupby
+- PR #5973 Link to the Code of Conduct in CONTRIBUTING.md
 - PR #5917 Just use `None` for `strides` in `Buffer`
+- PR #5971 Add cuStreamz README for basic installation and use
 
 ## Bug Fixes
+
 
 # cuDF 0.15.0 (Date TBD)
 
@@ -190,6 +196,7 @@
 - PR #5803 Add in Java support for the repeat command
 - PR #5806 Expose the error message from native exception when throwing an OOM exception
 - PR #5825 Enable ORC statistics generation by default
+- PR #5771 Enable gather/slicing/joins with ListColumns in Python
 - PR #5834 Add support for dictionary column in concatenate
 - PR #5832 Make dictionary_wrapper constructor from a value explicit
 - PR #5833 Pin `dask` and `distributed` version to `2.22.0`
@@ -204,6 +211,7 @@
 - PR #5885 Add in java support for merge sort
 - PR #5894 Small code improvement / cleanup
 - PR #5899 Add in gather support for Java
+- PR #5906 Add macros for showing line of failures in unit tests
 - PR #5933 Add in APIs to read/write arrow IPC formatted data from java 
 
 ## Bug Fixes
@@ -225,16 +233,19 @@
 - PR #5377 Handle array of cupy scalars in to_column
 - PR #5326 Fix `DataFrame.__init__` for list of scalar inputs and related dask issue
 - PR #5383 Fix cython `type_id` enum mismatch
+- PR #5982 Fix gcc-9 compile errors under CUDA 11
 - PR #5382 Fix CategoricalDtype equality comparisons
 - PR #5385 Fix index issues in `DataFrame.from_gpu_matrix`
 - PR #5390 Fix Java data type IDs and string interleave test
 - PR #5392 Fix documentation links
+- PR #5978 Fix option to turn off NVTX
 - PR #5410 Fix compile warning by disallowing bool column type for slice_strings
 - PR #5404 Fix issue with column creation when chunked arrays are passed
 - PR #5409 Use the correct memory resource when creating empty null masks
 - PR #5399 Fix cpp compiler warnings of unreachable code
 - PR #5439 Fix nvtext ngrams_tokenize performance for multi-byte UTF8
 - PR #5446 Fix compile error caused by out-of-date PR merge (4990)
+- PR #5983 Fix JNI gcc-9 compile error under CUDA 11
 - PR #5423 Fix any() reduction ignore nulls
 - PR #5459 Fix str.translate to convert table characters to UTF-8
 - PR #5480 Fix merge sort docs
@@ -305,6 +316,7 @@
 - PR #5951 Fix mkdir error in benchmark build
 - PR #5949 Find Arrow include directory for JNI builds
 - PR #5964 Fix API doc page title tag
+- PR #5981 Handle `nat` in `fillna` for datetime and timedelta types
 
 
 # cuDF 0.14.0 (03 Jun 2020)
