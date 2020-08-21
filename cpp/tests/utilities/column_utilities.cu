@@ -15,6 +15,7 @@
  */
 
 #include "column_utilities.hpp"
+#include "cudf/utilities/error.hpp"
 #include "cudf/utilities/type_dispatcher.hpp"
 #include "detail/column_utilities.hpp"
 #include "thrust/iterator/counting_iterator.h"
@@ -231,6 +232,7 @@ struct column_comparator_impl<list_view, check_exact_equality> {
                   bool print_all_differences,
                   int depth)
   {
+    printf("CALEB: column_property_comparator_impl()");
     lists_column_view lhs_l(lhs);
     lists_column_view rhs_l(rhs);
 
@@ -268,6 +270,37 @@ struct column_comparator_impl<list_view, check_exact_equality> {
     //        - determine the first level at which there are list differences (via the offsets),
     //          do a gather on those rows and display them.
   }
+};
+
+template <>
+struct column_comparator_impl<list_view, false>
+{
+  void operator()(column_view const& lhs, column_view const& rhs, bool print_all_differences, int depth)
+  {
+    printf("CALEB: column_comparator_impl<list_view, false>()!\n");
+    using ComparatorType = corresponding_rows_not_equivalent;
+
+    // If lhs and rhs are of different types, fail.
+    CUDF_EXPECTS(lhs.type().id() == rhs.type().id(), "Expected same data-type.");
+
+    // If lhs and rhs have different row-counts, fail also.
+    CUDF_EXPECTS(lhs.size() == rhs.size(), "Expected same row-count!"); // TODO: More descriptive message.
+
+    auto d_lhs = cudf::table_device_view::create(table_view{{lhs}});
+    auto d_rhs = cudf::table_device_view::create(table_view{{rhs}});
+
+    // worst case - everything is different
+    thrust::device_vector<int> differences(lhs.size());
+
+    auto diff_iter = thrust::copy_if(thrust::device,
+                                     thrust::make_counting_iterator(0),
+                                     thrust::make_counting_iterator(lhs.size()),
+                                     differences.begin(),
+                                     ComparatorType(*d_lhs, *d_rhs));
+
+    // shrink back down
+    differences.resize(thrust::distance(differences.begin(), diff_iter));
+    print_differences(differences, lhs, rhs, print_all_differences, depth);}
 };
 
 template <bool check_exact_equality>

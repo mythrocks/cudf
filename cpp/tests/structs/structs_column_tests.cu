@@ -734,4 +734,37 @@ TYPED_TEST(TypedStructColumnWrapperTest, TestEmptyGather)
   expect_columns_equivalent(*expected_structs_column, gathered_struct_col);
 }
 
+TEST_F(StructColumnWrapperTest, TestListEquivalent)
+{
+  using namespace cudf::test;
+  using TypeParam=int32_t;
+
+  // Expect list at index 5 to be null.
+  auto expected_list_column = lists_column_wrapper<TypeParam>{
+    {{0,0},{1,1},{2,2},{3,3},{4,4},{5,5,5},{6,6}}, 
+    make_counting_transform_iterator(0, [](auto i){return i!=5;})
+  }.release();
+
+  auto source_list_column = lists_column_wrapper<TypeParam>{
+    {{0,0},{1,1},{2,2},{3,3},{4,4},{5,5,5},{6,6}}, 
+    make_counting_transform_iterator(0, [](auto ignore){return true;})
+  }.release();
+
+  // Simulate structs' null-mask pushdown behaviour.
+  auto new_null_mask_values = {1, 1, 1, 1, 1, 0, 1};
+  auto new_null_mask = cudf::test::detail::make_null_mask(new_null_mask_values.begin(), new_null_mask_values.end());
+
+  // Overwrite.
+  source_list_column->set_null_mask(new_null_mask);
+
+  std::cout << "Input Column: \n";
+  print(*source_list_column);
+
+  std::cout << "Expected column: \n";
+  print(*expected_list_column);
+
+  expect_columns_equal(*source_list_column, *expected_list_column); // Not really *equal*. Placeholder.
+
+}
+
 CUDF_TEST_PROGRAM_MAIN()
