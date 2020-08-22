@@ -15,13 +15,14 @@
  */
 #pragma once
 
-#include <cudf/lists/list_view.cuh>
-#include <cudf/column/column_device_view.cuh>
+// #include <cudf/lists/list_view.cuh>
+// #include <cudf/column/column_device_view.cuh>
 
 namespace cudf {
 
 namespace detail {
 
+/*
 class lists_column_device_view 
 // TODO: Required for recursion.
 // : private column_device_view 
@@ -51,6 +52,7 @@ class lists_column_device_view
         column_device_view d_child;
         column_device_view d_offsets;
 };
+*/
 
 } // namespace detail;
 

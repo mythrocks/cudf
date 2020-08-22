@@ -47,13 +47,13 @@ namespace test {
 
 namespace {
 
-template <bool check_exact_equality>
+template <bool check_exact_equality, bool compare_sizes=true> 
 struct column_property_comparator {
   template <typename T>
-  void operator()(cudf::column_view const& lhs, cudf::column_view const& rhs)
+  void operator()(cudf::column_view const& lhs, cudf::column_view const& rhs) // TODO: Specialize for list_view, skip size check.
   {
     EXPECT_EQ(lhs.type(), rhs.type());
-    EXPECT_EQ(lhs.size(), rhs.size());
+    if (compare_sizes) { EXPECT_EQ(lhs.size(), rhs.size()); }
     if (lhs.size() > 0 && check_exact_equality) { EXPECT_EQ(lhs.nullable(), rhs.nullable()); }
 
     // equivalent, but not exactly equal columns can have a different number of children if their
@@ -72,7 +72,7 @@ struct column_property_comparator {
     if (cudf::is_nested<T>()) {
       for (size_type idx = 0; idx < lhs.num_children(); idx++) {
         cudf::type_dispatcher(lhs.child(idx).type(),
-                              column_property_comparator<check_exact_equality>{},
+                              column_property_comparator<check_exact_equality, check_exact_equality>{}, // For equivalence checks, skip size-comparison for children.
                               lhs.child(idx),
                               rhs.child(idx));
       }
@@ -232,7 +232,7 @@ struct column_comparator_impl<list_view, check_exact_equality> {
                   bool print_all_differences,
                   int depth)
   {
-    printf("CALEB: column_property_comparator_impl()");
+    printf("CALEB: EQUALITY! column_property_comparator_impl()\n");
     lists_column_view lhs_l(lhs);
     lists_column_view rhs_l(rhs);
 
@@ -277,7 +277,7 @@ struct column_comparator_impl<list_view, false>
 {
   void operator()(column_view const& lhs, column_view const& rhs, bool print_all_differences, int depth)
   {
-    printf("CALEB: column_comparator_impl<list_view, false>()!\n");
+    printf("CALEB: EQUIVALENCE! column_comparator_impl<list_view, false>()!\n");
     using ComparatorType = corresponding_rows_not_equivalent;
 
     // If lhs and rhs are of different types, fail.
@@ -331,9 +331,14 @@ struct column_comparator {
                   bool print_all_differences,
                   int depth = 0)
   {
+    printf("CALEB: column_comparator: About to check column properties!\n");
+    printf("CALEB: lhs size == %d\n", static_cast<int>(lhs.size()));
+    printf("CALEB: rhs size == %d\n", static_cast<int>(rhs.size()));
+    printf("CALEB: type == %d\n", static_cast<int>(lhs.type().id()));
     // compare properties
     cudf::type_dispatcher(lhs.type(), column_property_comparator<check_exact_equality>{}, lhs, rhs);
 
+    printf("CALEB: column_comparator: About to check column values!\n");
     // compare values
     column_comparator_impl<T, check_exact_equality> comparator{};
     comparator(lhs, rhs, print_all_differences, depth);

@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/lists/list_device_view.cuh>
 #include <cudf/detail/utilities/hash_functions.cuh>
 #include <cudf/detail/utilities/release_assert.cuh>
 #include <cudf/sorting.hpp>
@@ -187,6 +188,18 @@ class element_equality_comparator {
                             rhs.element<Element>(rhs_element_index));
   }
 
+  template <typename Element,
+            std::enable_if_t<std::is_same<Element, cudf::list_view>::value>* = nullptr>
+  __device__ bool operator()(size_type lhs_element_index, size_type rhs_element_index)
+  {
+    printf("CALEB: element_equality_comparator<list_view>::operator()!\n");
+    cudf::detail::lists_column_device_view lhs_device_view{lhs};
+    cudf::detail::lists_column_device_view rhs_device_view{rhs};
+    // cudf::detail::lists_column_device_view lhs_device_view{lhs.child(0), lhs.child(1)};
+    // cudf::detail::lists_column_device_view rhs_device_view{rhs.child(0), rhs.child(1)};
+    return lhs_device_view[lhs_element_index] == rhs_device_view[rhs_element_index];
+  }  
+  
   template <typename Element,
             std::enable_if_t<not cudf::is_equality_comparable<Element, Element>()>* = nullptr>
   __device__ bool operator()(size_type lhs_element_index, size_type rhs_element_index)
