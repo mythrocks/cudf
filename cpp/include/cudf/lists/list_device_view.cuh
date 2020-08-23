@@ -42,15 +42,9 @@ class list_device_view {
 
     public:
 
-        /*
-        // TODO: Verify that this is necessary. Else, remove.
-        __host__ __device__ list_device_view()
-        {
-            printf("CALEB: list_device_view::default_ctor()!\n");
-        }
-        */
-
-        CUDA_DEVICE_CALLABLE list_device_view(lists_column_device_view const* device_column_view, size_type const& idx);
+        CUDA_DEVICE_CALLABLE list_device_view(
+            lists_column_device_view const& lists_column, 
+            size_type const& idx);
 
         list_device_view(list_device_view const&) = default;
         list_device_view& operator=(list_device_view const&) = default;
@@ -60,7 +54,7 @@ class list_device_view {
         template<typename T>
         CUDA_DEVICE_CALLABLE T element(size_type idx) const;
 
-        // Check if list's idx-th element is null.
+        // Check if element at index idx is null.
         CUDA_DEVICE_CALLABLE bool is_null(size_type idx) const;
 
         // Check if list itself is null.
@@ -70,9 +64,9 @@ class list_device_view {
 
     private:
 
-        lists_column_device_view const* _p_lists_column_device_view{nullptr};
+        lists_column_device_view const& lists_column;
         size_type _row_index{}; // Row index in the Lists column vector.
-        size_type _size{};      // Number of elements in *this* list.
+        size_type _size{};      // Number of elements in *this* list row.
 
         size_type begin_offset; // Offset in list_column_device_view where this list begins.
 };
@@ -89,58 +83,43 @@ class lists_column_device_view
         lists_column_device_view(lists_column_device_view const&) = default;
         lists_column_device_view(lists_column_device_view &&) = default;
         
-        /* TODO: DELETE
-        CUDA_DEVICE_CALLABLE lists_column_device_view(
-            column_device_view const& offsets, // Holds list offsets.
-            column_device_view const& child    // Holds data.
-        ) 
-        :  d_offsets(offsets), d_child(child)
-        {}
-        */
-
         CUDA_DEVICE_CALLABLE lists_column_device_view(column_device_view const& underlying)
-            :_underlying(underlying), _offsets(underlying.child(0)), _child(underlying.child(1))
+            :underlying(underlying)
         {}
 
         CUDA_DEVICE_CALLABLE cudf::list_device_view operator[](size_type idx) const
         {
-            return cudf::list_device_view{this, idx};
+            return cudf::list_device_view{*this, idx};
         }
 
-        CUDA_DEVICE_CALLABLE column_device_view const& offsets() const
+        CUDA_DEVICE_CALLABLE column_device_view offsets() const
         {
-            return _offsets;
+            return underlying.child(0);
         }
 
-        CUDA_DEVICE_CALLABLE column_device_view const& child() const
+        CUDA_DEVICE_CALLABLE column_device_view child() const
         {
-            return _child;
+            return underlying.child(1);
         }
 
         CUDA_DEVICE_CALLABLE bool is_null(size_type idx) const
         {
-            return _underlying.is_null(idx);
+            return underlying.is_null(idx);
         }
 
     private:
 
-        column_device_view const& _underlying;
-        column_device_view const& _offsets;
-        column_device_view const& _child;
+        column_device_view underlying;
 };
 
 } // namespace detail;
 
-CUDA_DEVICE_CALLABLE list_device_view::list_device_view(lists_column_device_view const* device_column_view, size_type const& row_index)
-    : _p_lists_column_device_view(device_column_view), _row_index(row_index)
+CUDA_DEVICE_CALLABLE list_device_view::list_device_view(lists_column_device_view const& lists_column, size_type const& row_index)
+    : lists_column(lists_column), _row_index(row_index)
 {
-    printf("CALEB: list_device_view::non-default-ctor!\n");
-    printf("\tCALEB: device_column_view == %s\n", (device_column_view)? "NON_NULL" : "NULL");
-    printf("\tCALEB: index: %d\n", row_index);
-
     // TODO: release_assert(idx in [0, offsets.size()));
 
-    column_device_view const& offsets = _p_lists_column_device_view->offsets();
+    column_device_view const& offsets = lists_column.offsets();
     begin_offset = offsets.element<size_type>(row_index);
     _size = offsets.element<size_type>(row_index+1) - begin_offset;
 }
@@ -150,21 +129,20 @@ template<typename T>
 CUDA_DEVICE_CALLABLE T list_device_view::element(size_type idx) const
 {
     // TODO: release_assert() for idx < size of list row.
-    // auto begin_offset = _p_lists_column_device_view->offsets().element<size_type>(_row_index); // TODO: Cache in list_device_view.
     auto element_offset = begin_offset + idx;
-    return _p_lists_column_device_view->child().element<T>(element_offset); 
+    return lists_column.child().element<T>(element_offset); 
 }
 
 CUDA_DEVICE_CALLABLE bool list_device_view::is_null(size_type idx) const
 {
     // TODO: release_assert() for idx < size of list row.
     auto element_offset = begin_offset + idx;
-    return _p_lists_column_device_view->child().is_null(element_offset);
+    return lists_column.child().is_null(element_offset);
 }
 
 CUDA_DEVICE_CALLABLE bool list_device_view::is_null() const
 {
-    return _p_lists_column_device_view->is_null(_row_index);
+    return lists_column.is_null(_row_index);
 }
 
 template<bool has_nulls=true>
@@ -227,7 +205,7 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
 {
     printf("CALEB: list_device_view::operator ==()!\n");
 
-    auto element_type{_p_lists_column_device_view->child().type()};
+    auto element_type{lists_column.child().type()};
 
     if (element_type.id() == cudf::type_id::LIST || element_type.id() == cudf::type_id::STRUCT)
     {
@@ -241,32 +219,26 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
         return true;
     }
 
-    // Compare primitive elements.
-    // For each i between the corresponding [begin,end) offsets of lhs and rhs,
-    // type-dispatch the comparisons.
     if (size() != rhs.size())
     {
         printf("CALEB: list_device_view::operator ==()! Sizes are different! \n");
         return false;
     }
 
-    list_element_equality_comparator<true> comp{*this, rhs};
+    // Compare primitive elements.
+    // For each i between the corresponding [begin,end) offsets of lhs and rhs,
+    // type-dispatch the comparisons.
+    
+    list_element_equality_comparator<true> compare_eq{*this, rhs};
 
     for (size_type i{0}; i<size(); ++i)
     {
-        bool eq = cudf::type_dispatcher(
-            element_type,
-            comp,
-            i
-        );
-
-        if (!eq) {
+        if (!cudf::type_dispatcher(element_type, compare_eq, i)) {
             return false;
         }
     }
 
     return true;
 }
-
 
 }  // namespace cudf
