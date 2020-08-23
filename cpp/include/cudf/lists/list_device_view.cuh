@@ -50,6 +50,10 @@ class list_device_view {
         list_device_view& operator=(list_device_view const&) = default;
 
         CUDA_DEVICE_CALLABLE bool operator == (list_device_view const& rhs) const;
+        CUDA_DEVICE_CALLABLE bool operator != (list_device_view const& rhs) const
+        {
+            return !(*this == rhs);
+        }
 
         template<typename T>
         CUDA_DEVICE_CALLABLE T element(size_type idx) const;
@@ -175,15 +179,7 @@ class list_element_equality_comparator
                 }
             }
 
-            // TODO: Enable.
-            // printf("CALEB: Comparing lhs(%l) with rhs(%l)\n", lhs.element<T>(lhs_index), rhs.element<T>(rhs_index));
-            auto eq = lhs.element<T>(i) == rhs.element<T>(i);
-            if (eq) 
-            {printf("CALEB: EQ!\n");}
-            else
-            {printf("CALEB: NE!\n");}
-            return eq;
-        //    return lhs.element<T>(i) == rhs.element<T>(i);
+           return lhs.element<T>(i) == rhs.element<T>(i);
         } 
 
         template <typename T,
@@ -206,12 +202,7 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
     printf("CALEB: list_device_view::operator ==()!\n");
 
     auto element_type{lists_column.child().type()};
-
-    if (element_type.id() == cudf::type_id::LIST || element_type.id() == cudf::type_id::STRUCT)
-    {
-        printf("CALEB: list_device_view::operator ==()! TODO: Implement list<list>, list<struct> \n");
-        return false; // TODO: Implement nesting.
-    }
+    release_assert(rhs.lists_column.child().type() == element_type && "List-Element type mismatch!");
 
     if (is_null() && rhs.is_null())
     {
@@ -223,6 +214,30 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
     {
         printf("CALEB: list_device_view::operator ==()! Sizes are different! \n");
         return false;
+    }
+
+    if (element_type.id() == cudf::type_id::STRUCT)
+    {
+        printf("CALEB: list_device_view::operator ==()! TODO: Implement list<struct> \n");
+        return false; // TODO: Implement nesting.
+    }
+
+    if (element_type.id() == cudf::type_id::LIST)
+    {
+        // List of lists.
+        // Must compare each list that this list-element contains, against rhs's.
+
+        lists_column_device_view lhs_lists_column{lists_column.child()};
+        lists_column_device_view rhs_lists_column{rhs.lists_column.child()};
+        for(size_type i{0}; i<size(); ++i)
+        {
+            // TODO: Use !=.
+            if (lhs_lists_column[i+begin_offset] != rhs_lists_column[i+rhs.begin_offset])
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Compare primitive elements.
