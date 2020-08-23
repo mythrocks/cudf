@@ -231,7 +231,6 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
         lists_column_device_view rhs_lists_column{rhs.lists_column.child()};
         for(size_type i{0}; i<size(); ++i)
         {
-            // TODO: Use !=.
             if (lhs_lists_column[i+begin_offset] != rhs_lists_column[i+rhs.begin_offset])
             {
                 return false;

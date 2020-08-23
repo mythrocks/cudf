@@ -195,8 +195,6 @@ class element_equality_comparator {
     printf("CALEB: element_equality_comparator<list_view>::operator()!\n");
     cudf::detail::lists_column_device_view lhs_device_view{lhs};
     cudf::detail::lists_column_device_view rhs_device_view{rhs};
-    // cudf::detail::lists_column_device_view lhs_device_view{lhs.child(0), lhs.child(1)};
-    // cudf::detail::lists_column_device_view rhs_device_view{rhs.child(0), rhs.child(1)};
     return lhs_device_view[lhs_element_index] == rhs_device_view[rhs_element_index];
   }  
   
