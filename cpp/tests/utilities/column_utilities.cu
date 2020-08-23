@@ -50,7 +50,7 @@ namespace {
 template <bool check_exact_equality, bool compare_sizes=true> 
 struct column_property_comparator {
   template <typename T>
-  void operator()(cudf::column_view const& lhs, cudf::column_view const& rhs) // TODO: Specialize for list_view, skip size check.
+  void operator()(cudf::column_view const& lhs, cudf::column_view const& rhs) 
   {
     EXPECT_EQ(lhs.type(), rhs.type());
     if (compare_sizes) { EXPECT_EQ(lhs.size(), rhs.size()); }
@@ -71,10 +71,15 @@ struct column_property_comparator {
     //   seems to be ok.
     if (cudf::is_nested<T>()) {
       for (size_type idx = 0; idx < lhs.num_children(); idx++) {
-        cudf::type_dispatcher(lhs.child(idx).type(),
-                              column_property_comparator<check_exact_equality, check_exact_equality>{}, // For equivalence checks, skip size-comparison for children.
-                              lhs.child(idx),
-                              rhs.child(idx));
+        cudf::type_dispatcher(
+          lhs.child(idx).type(),
+          column_property_comparator<
+            check_exact_equality, 
+            check_exact_equality 
+            || !std::is_same<T, cudf::list_view>::value>{}, // Skip child-col size checks for
+                                                            // equivalence checks on lists. 
+          lhs.child(idx),
+          rhs.child(idx));
       }
     }
   }
