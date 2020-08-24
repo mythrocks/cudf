@@ -274,14 +274,6 @@ CUDA_DEVICE_CALLABLE bool list_device_view::operator == (list_device_view const&
         return false;
     }
 
-    /*
-    if (element_type.id() == cudf::type_id::STRUCT)
-    {
-        printf("CALEB: list_device_view::operator ==()! TODO: Implement list<struct> \n");
-        return false; // TODO: Implement nesting.
-    }
-    */
-
     if (element_type.id() == cudf::type_id::LIST)
     {
         // List of lists.
