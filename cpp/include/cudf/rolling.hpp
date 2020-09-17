@@ -139,6 +139,16 @@ std::unique_ptr<column> grouped_rolling_window(
   std::unique_ptr<aggregation> const& aggr,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+
+// TODO: Docs.
+std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+                                               column_view const& input,
+                                               column_view const& default_outputs,
+                                               size_type row_offset,
+                                               size_type min_periods,
+                                               std::unique_ptr<aggregation> const& aggr,
+                                               rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 /**
  * @brief  Applies a grouping-aware, timestamp-based rolling window function to the values in a
  *column.
