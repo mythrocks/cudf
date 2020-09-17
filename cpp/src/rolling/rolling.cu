@@ -881,14 +881,45 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
   }
 }
 
-// Group-based rolling-window overload, for window functions that accept
-// default output values.
 std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
                                                column_view const& input,
-                                               column_view const& default_outputs,
-                                               size_type row_offset,
-                                               size_type min_periods,
                                                std::unique_ptr<aggregation> const& aggr,
+                                               size_type row_offset,
+                                               scalar const& default_output,
+                                               rmm::mr::device_memory_resource* mr)
+{
+  return grouped_rolling_window(
+    group_keys, 
+    input, 
+    aggr, 
+    row_offset, 
+    cudf::make_column_from_scalar(default_output, input.size())->view(), 
+    mr);
+}
+
+std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+                                               column_view const& input,
+                                               std::unique_ptr<aggregation> const& aggr,
+                                               size_type row_offset,
+                                               rmm::mr::device_memory_resource* mr)
+{
+  return grouped_rolling_window(
+    group_keys, 
+    input, 
+    aggr, 
+    row_offset, 
+    empty_like(input)->view(),
+    mr);
+}
+
+// Group-based rolling-window overload, for window functions that accept
+// default output values.
+// Currently, only LEAD and LAG are supported.
+std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+                                               column_view const& input,
+                                               std::unique_ptr<aggregation> const& aggr,
+                                               size_type row_offset,
+                                               column_view const& default_outputs,
                                                rmm::mr::device_memory_resource* mr)
 {
   // Only LEAD and LAG are allowed default output values.
@@ -907,7 +938,7 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
   if (group_keys.num_columns() == 0) {
     // No Groupby columns specified. Treat as one big group.
     // TODO: Introduce overload for non-grouped rolling_window(), with defaults.
-    return rolling_window(input, row_offset, row_offset, min_periods, aggr, mr);
+    return rolling_window(input, row_offset, row_offset, 1, aggr, mr);
   }
 
   using sort_groupby_helper = cudf::groupby::detail::sort::sort_groupby_helper;
@@ -1018,7 +1049,7 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
                                     preceding_calculator),
     thrust::make_transform_iterator(thrust::make_counting_iterator<size_type>(0),
                                     following_calculator),
-    min_periods,
+    1, // min_periods
     aggr,
     mr,
     0);

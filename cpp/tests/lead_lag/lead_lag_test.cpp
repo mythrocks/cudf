@@ -68,10 +68,9 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagBasics)
   auto lead_3_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    cudf::empty_like(*input_col)->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
     3,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD)
+    cudf::empty_like(*input_col)->view()
   );
 
   expect_columns_equivalent(
@@ -85,10 +84,9 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagBasics)
   auto const lag_2_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    cudf::empty_like(*input_col)->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
     2,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG)
+    cudf::empty_like(*input_col)->view()
   );
 
   expect_columns_equivalent(
@@ -116,10 +114,9 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNulls)
   auto lead_3_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    cudf::empty_like(*input_col)->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
     3,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD)
+    cudf::empty_like(*input_col)->view()
   );
 
   expect_columns_equivalent(
@@ -133,10 +130,9 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNulls)
   auto const lag_2_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    cudf::empty_like(*input_col)->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
     2,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG)
+    cudf::empty_like(*input_col)->view()
   );
 
   expect_columns_equivalent(
@@ -161,40 +157,38 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithDefaults)
   auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
 
-  auto const default_value = cudf::make_fixed_width_scalar(cudf::test::detail::fixed_width_type_converter<int32_t, T>{}(9));
+  auto const default_value = cudf::make_fixed_width_scalar(detail::fixed_width_type_converter<int32_t, T>{}(99));
   auto const default_outputs = cudf::make_column_from_scalar(*default_value, input_col->size());
 
   auto lead_3_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    default_outputs->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
     3,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD)
+    default_outputs->view()
   );
 
   expect_columns_equivalent(
     *lead_3_output_col,
     fixed_width_column_wrapper<T>{
-      {3, 4, 5, 9, 9, 9, 30, 40, 50, 9, 9, 9},
-      {1, 1, 1, 1, 1, 1, 1,   1,  1, 1, 1, 1}
+      {3, 4, 5, 99, 99, 99, 30, 40, 50, 99, 99, 99},
+      {1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  1}
     }.release()->view()
   );
 
   auto const lag_2_output_col = cudf::grouped_rolling_window(
     grouping_keys,
     input_col->view(),
-    cudf::empty_like(*input_col)->view(),
+    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
     2,
-    1,
-    std::make_unique<cudf::aggregation>(cudf::aggregation::LAG)
+    *cudf::make_fixed_width_scalar(detail::fixed_width_type_converter<int32_t, T>{}(99))
   );
 
   expect_columns_equivalent(
     *lag_2_output_col,
     fixed_width_column_wrapper<T>{
-      {-1, -1, 0, 1, -1, 3, -1, -1, 0, 10,  -1, 30},
-      { 0,  0, 1, 1,  0, 1,  0,  0, 1,  1 ,  0,  1}
+      {99, 99, 0, 1, -1, 3, 99, 99, 0, 10,  -1, 30},
+      { 1,  1, 1, 1,  0, 1,  1,  1, 1,  1 ,  0,  1}
     }.release()->view()
   );
 }
