@@ -124,8 +124,6 @@ process_rolling_window(column_device_view input,
                        size_type current_index,
                        size_type min_periods)
 {
-  // TODO: IMPLEMENT!
-
   printf("CALEB: For current_index(%d), start_index=%d, end_index=%d, input.size=%d\n", current_index, start_index, end_index, input.size());
   
   // start_index and end_index should have been normalized already.
@@ -144,8 +142,6 @@ process_rolling_window(column_device_view input,
   }
 
   // Not an invalid row.
-  // output.element<OutputType>(current_index) = op == aggregation::LAG? 
-    // output.element<InputType>(current_index - start_index) : output.element<InputType(curr)
   
   size_type index = (op == aggregation::LAG)? start_index : end_index-1;
   output.element<OutputType>(current_index) = input.element<InputType>(index);
@@ -987,7 +983,7 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
     if (op == aggregation::LAG)
     {
-      return ( row_offset > idx - group_start + 1 ) ? idx + 1 : row_offset + 1;       
+      return ( row_offset > idx - group_start ) ? idx + 1 : row_offset + 1;       
     }
     else 
     {
