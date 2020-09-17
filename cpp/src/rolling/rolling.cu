@@ -554,90 +554,6 @@ struct rolling_window_launcher {
       input, default_outputs, preceding_window_begin, following_window_begin, min_periods, agg, mr, stream);
   }
 
-  /* DELETE THIS
-
-  // Deals with invalid aggregation options
-  template <typename T,
-            typename agg_op,
-            aggregation::Kind op,
-            typename PrecedingWindowIterator,
-            typename FollowingWindowIterator>
-  std::enable_if_t<(op == aggregation::LAG || op == aggregation::LEAD) && !std::is_same<T, cudf::string_view>(),
-                   std::unique_ptr<column>>
-  launch(column_view const& input,
-         column_view const& default_outputs,
-         PrecedingWindowIterator preceding_window_begin,
-         FollowingWindowIterator following_window_begin,
-         size_type min_periods,
-         std::unique_ptr<aggregation> const& agg,
-         rmm::mr::device_memory_resource* mr,
-         cudaStream_t stream)
-  {
-    if (input.is_empty()) return empty_like(input);
-
-    auto output = make_fixed_width_column(
-      target_type(input.type(), op), input.size(), mask_state::UNINITIALIZED, stream, mr);
-
-    cudf::mutable_column_view output_view = output->mutable_view();
-    auto valid_count =
-      kernel_launcher<T, agg_op, op, PrecedingWindowIterator, FollowingWindowIterator>(
-        input,
-        default_outputs,
-        output_view,
-        preceding_window_begin,
-        following_window_begin,
-        min_periods,
-        agg,
-        stream);
-
-    output->set_null_count(output->size() - valid_count);
-
-    return output;
-  }
-
-  // Deals with invalid aggregation options
-  template <typename T,
-            typename agg_op,
-            aggregation::Kind op,
-            typename PrecedingWindowIterator,
-            typename FollowingWindowIterator>
-  std::enable_if_t<!(op == aggregation::LAG || op == aggregation::LEAD),
-                   std::unique_ptr<column>>
-  launch(column_view const& input,
-         column_view const& default_outputs,
-         PrecedingWindowIterator preceding_window_begin,
-         FollowingWindowIterator following_window_begin,
-         size_type min_periods,
-         std::unique_ptr<aggregation> const& agg,
-         rmm::mr::device_memory_resource* mr,
-         cudaStream_t stream)
-  {
-    CUDF_FAIL("Window aggregations with default values are only supported on LEAD() and LAG().");
-  }
-
-  template <aggregation::Kind op,
-            typename PrecedingWindowIterator,
-            typename FollowingWindowIterator>
-  std::enable_if_t<
-    (op == aggregation::LAG || op == aggregation::LEAD), 
-    std::unique_ptr<column>> operator()(
-    column_view const& input,
-    column_view const& default_outputs,
-    PrecedingWindowIterator preceding_window_begin,
-    FollowingWindowIterator following_window_begin,
-    size_type min_periods,
-    std::unique_ptr<aggregation> const& agg,
-    rmm::mr::device_memory_resource* mr,
-    cudaStream_t stream)
-  {
-    return launch<InputType,
-                  typename corresponding_operator<op>::type,
-                  op,
-                  PrecedingWindowIterator,
-                  FollowingWindowIterator>(
-      input, default_outputs, preceding_window_begin, following_window_begin, min_periods, agg, mr, stream);
-  }
-  */
 };
 
 struct dispatch_rolling {
@@ -1062,18 +978,8 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
   // Now, window calculation.
   auto preceding_calculator = [d_group_offsets = group_offsets.data().get(),
                                d_group_labels  = group_labels.data().get(),
-                              //  is_lag_op = aggr->is_equal(aggregation::LAG),
                                op = aggr->kind,
                                row_offset] __device__(size_type idx) {
-    /*
-    if (!is_lag_op) {
-      return 1;
-    }
-
-    auto group_label = d_group_labels[idx];
-    auto group_start = d_group_offsets[group_label];
-    return ( row_offset > idx - group_start + 1 ) ? idx + 1 : row_offset + 1;
-    */
 
     auto group_label = d_group_labels[idx];
     auto group_start = d_group_offsets[group_label];
@@ -1091,23 +997,9 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
   auto following_calculator = [d_group_offsets = group_offsets.data().get(),
                                d_group_labels  = group_labels.data().get(),
-                              //  is_lead_op = aggr->is_equal(aggregation::LEAD),
                                op = aggr->kind,
                                col_size = input.size(),
                                row_offset] __device__(size_type idx) {
-    /*
-    if (!is_lead_op) {
-      return 0;
-    }               
-
-    auto group_label = d_group_labels[idx];
-    auto group_end =
-      d_group_offsets[group_label +
-                      1];  // Cannot fall off the end, since offsets is capped with `input.size()`.
-  
-    return ( row_offset > group_end - 1 - idx ) ? col_size-idx : row_offset;
-    */
-
     auto group_label = d_group_labels[idx];
     auto group_start = d_group_offsets[group_label];
     auto group_end = d_group_offsets[ group_label + 1 ];
