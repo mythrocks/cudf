@@ -935,17 +935,33 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
   CUDF_EXPECTS((group_keys.num_columns() == 0 || group_keys.num_rows() == input.size()),
                "Size mismatch between group_keys and input vector.");
 
-  if (group_keys.num_columns() == 0) {
+  CUDF_EXPECTS((default_outputs.is_empty() || default_outputs.size() == input.size()),
+               "Defaults column must be either empty or have as many rows as the input column.");
+
+  // if (group_keys.num_columns() == 0) {
     // No Groupby columns specified. Treat as one big group.
     // TODO: Introduce overload for non-grouped rolling_window(), with defaults.
-    return rolling_window(input, row_offset, row_offset, 1, aggr, mr);
-  }
+    // return rolling_window(input, row_offset, row_offset, 1, aggr, mr);
+  // }
 
   using sort_groupby_helper = cudf::groupby::detail::sort::sort_groupby_helper;
+  using index_vector = sort_groupby_helper::index_vector;
 
-  sort_groupby_helper helper{group_keys, cudf::null_policy::INCLUDE, cudf::sorted::YES};
-  auto group_offsets{helper.group_offsets()};
-  auto const& group_labels{helper.group_labels()};
+  index_vector group_offsets, group_labels;
+
+  if (group_keys.num_columns() == 0)
+  {
+    // Highly unlikely, but possible. Treat as one giant group.
+    group_offsets.push_back(0);
+    group_offsets.push_back(input.size()); // input can't be empty at this point.
+    group_labels = index_vector{input.size(), size_type{0}};
+  }
+  else
+  {
+    sort_groupby_helper helper{group_keys, cudf::null_policy::INCLUDE, cudf::sorted::YES};
+    group_offsets = helper.group_offsets();
+    group_labels = helper.group_labels();
+  }
 
   // `group_offsets` are interpreted in adjacent pairs, each pair representing the offsets
   // of the first, and one past the last elements in a group.
