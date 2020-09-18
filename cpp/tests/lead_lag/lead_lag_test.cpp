@@ -65,7 +65,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagBasics)
   auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
 
-  auto lead_3_output_col = cudf::grouped_rolling_window(
+  auto lead_3_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -81,7 +81,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagBasics)
     }.release()->view()
   );
 
-  auto const lag_2_output_col = cudf::grouped_rolling_window(
+  auto const lag_2_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -111,7 +111,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNulls)
   auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
 
-  auto lead_3_output_col = cudf::grouped_rolling_window(
+  auto lead_3_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -127,7 +127,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNulls)
     }.release()->view()
   );
 
-  auto const lag_2_output_col = cudf::grouped_rolling_window(
+  auto const lag_2_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -160,7 +160,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithDefaults)
   auto const default_value = cudf::make_fixed_width_scalar(detail::fixed_width_type_converter<int32_t, T>{}(99));
   auto const default_outputs = cudf::make_column_from_scalar(*default_value, input_col->size());
 
-  auto lead_3_output_col = cudf::grouped_rolling_window(
+  auto lead_3_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -176,7 +176,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithDefaults)
     }.release()->view()
   );
 
-  auto const lag_2_output_col = cudf::grouped_rolling_window(
+  auto const lag_2_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -206,7 +206,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithOutOfRangeOffsets)
   auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
 
-  auto lead_30_output_col = cudf::grouped_rolling_window(
+  auto lead_30_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -221,7 +221,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithOutOfRangeOffsets)
     }.release()->view()
   );
 
-  auto const lag_20_output_col = cudf::grouped_rolling_window(
+  auto const lag_20_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -251,7 +251,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithZeroOffsets)
   auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
 
-  auto lead_0_output_col = cudf::grouped_rolling_window(
+  auto lead_0_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -263,7 +263,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithZeroOffsets)
     *input_col
   );
 
-  auto const lag_0_output_col = cudf::grouped_rolling_window(
+  auto const lag_0_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -293,7 +293,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNegativeOffsets)
   auto const default_value = cudf::make_fixed_width_scalar(detail::fixed_width_type_converter<int32_t, T>{}(99));
   auto const default_outputs = cudf::make_column_from_scalar(*default_value, input_col->size());
 
-  auto lag_minus_3_output_col = cudf::grouped_rolling_window(
+  auto lag_minus_3_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -309,7 +309,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNegativeOffsets)
     }.release()->view()
   );
 
-  auto const lead_minus_2_output_col = cudf::grouped_rolling_window(
+  auto const lead_minus_2_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),
@@ -341,7 +341,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNoGrouping)
   auto const default_value = cudf::make_fixed_width_scalar(detail::fixed_width_type_converter<int32_t, T>{}(99));
   auto const default_outputs = cudf::make_column_from_scalar(*default_value, input_col->size());
 
-  auto lead_3_output_col = cudf::grouped_rolling_window(
+  auto lead_3_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LEAD),
@@ -357,7 +357,7 @@ TYPED_TEST(TypedLeadLagWindowTest, TestLeadLagWithNoGrouping)
     }.release()->view()
   );
 
-  auto const lag_2_output_col = cudf::grouped_rolling_window(
+  auto const lag_2_output_col = cudf::offset_rolling_window(
     grouping_keys,
     input_col->view(),
     std::make_unique<cudf::aggregation>(cudf::aggregation::LAG),

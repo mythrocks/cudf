@@ -124,8 +124,6 @@ process_rolling_window(column_device_view input,
                        size_type current_index,
                        size_type min_periods)
 {
-  printf("CALEB: For current_index(%d), start_index=%d, end_index=%d, input.size=%d\n", current_index, start_index, end_index, input.size());
-  
   // start_index and end_index should have been normalized already.
   // Check if start and end indices are set to either end of the input,
   // marking an invalid row.
@@ -881,14 +879,14 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
   }
 }
 
-std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+std::unique_ptr<column> offset_rolling_window(table_view const& group_keys,
                                                column_view const& input,
                                                std::unique_ptr<aggregation> const& aggr,
                                                size_type row_offset,
                                                scalar const& default_output,
                                                rmm::mr::device_memory_resource* mr)
 {
-  return grouped_rolling_window(
+  return offset_rolling_window(
     group_keys, 
     input, 
     aggr, 
@@ -897,13 +895,13 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
     mr);
 }
 
-std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+std::unique_ptr<column> offset_rolling_window(table_view const& group_keys,
                                                column_view const& input,
                                                std::unique_ptr<aggregation> const& aggr,
                                                size_type row_offset,
                                                rmm::mr::device_memory_resource* mr)
 {
-  return grouped_rolling_window(
+  return offset_rolling_window(
     group_keys, 
     input, 
     aggr, 
@@ -915,7 +913,7 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 // Group-based rolling-window overload, for window functions that accept
 // default output values.
 // Currently, only LEAD and LAG are supported.
-std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
+std::unique_ptr<column> offset_rolling_window(table_view const& group_keys,
                                                column_view const& input,
                                                std::unique_ptr<aggregation> const& aggr,
                                                size_type row_offset,
@@ -937,12 +935,6 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
   CUDF_EXPECTS((default_outputs.is_empty() || default_outputs.size() == input.size()),
                "Defaults column must be either empty or have as many rows as the input column.");
-
-  // if (group_keys.num_columns() == 0) {
-    // No Groupby columns specified. Treat as one big group.
-    // TODO: Introduce overload for non-grouped rolling_window(), with defaults.
-    // return rolling_window(input, row_offset, row_offset, 1, aggr, mr);
-  // }
 
   using sort_groupby_helper = cudf::groupby::detail::sort::sort_groupby_helper;
   using index_vector = sort_groupby_helper::index_vector;
