@@ -18,6 +18,7 @@
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/table/table.hpp>
 
+#include <bits/stdint-intn.h>
 #include <thrust/host_vector.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/scan.h>
@@ -55,54 +56,44 @@ TEST_F(MapLookupTest, Basics)
 {
   using namespace cudf::test;
 
-  // auto keys = strings_column_wrapper{"0","1", "1","2", "2","3"};
-  auto keys = strings_column_wrapper{"0","1", "1","2", "2","3"};
-  auto values = strings_column_wrapper{"00","11", "11","22", "22","33"};
-  auto pairs = structs_column_wrapper{
-    {keys, values}
-  }.release();
+  auto keys   = strings_column_wrapper{"0", "1", "1", "2", "2", "3"};
+  auto values = strings_column_wrapper{"00", "11", "11", "22", "22", "33"};
+  auto pairs  = structs_column_wrapper{{keys, values}}.release();
 
-  auto maps = cudf::make_lists_column(
-    3,
-    fixed_width_column_wrapper<size_type>{{0,2,4,6}}.release(),
-    std::move(pairs),
-    cudf::UNKNOWN_NULL_COUNT,
-    {}
-  );
+  auto maps = cudf::make_lists_column(3,
+                                      fixed_width_column_wrapper<size_type>{{0, 2, 4, 6}}.release(),
+                                      std::move(pairs),
+                                      cudf::UNKNOWN_NULL_COUNT,
+                                      {});
 
-  std::cout << "Input map: ";
-  print(maps->view());
-  std::cout << std::endl;
+  auto lookup = cudf::map_lookup(maps->view(), cudf::string_scalar("1"));
 
-  auto lookup_key = cudf::make_string_scalar("1");
-  auto string_lookup_key = *static_cast<cudf::string_scalar*>(lookup_key.get());
-  auto lookup = cudf::two_pass_map_lookup(maps->view(), string_lookup_key);
+  expect_columns_equivalent(lookup->view(), strings_column_wrapper{{"11", "11", ""}, {1, 1, 0}});
+}
 
-  std::cout << "Output vector: ";
-  print(lookup->view());
-  std::cout << std::endl;
+TEST_F(MapLookupTest, EmptyMaps) { using namespace cudf::test; }
 
-  /*
-  std::cout << "Testing gather. --------------" << std::endl;
-  auto strings = strings_column_wrapper{"A", "B", "C", "D", "E"};
-  auto table_for_gather = cudf::table_view{std::vector<cudf::column_view>{strings}};
-  auto gathered = cudf::detail::gather(
-    table_for_gather,
-    fixed_width_column_wrapper<size_type>{4,3,2,1,-1},
-    cudf::detail::out_of_bounds_policy::NULLIFY,
-    cudf::detail::negative_index_policy::NOT_ALLOWED
-  );
-  std::cout << "With NULLIFY,NOT_ALLOWED, got: "; print(gathered->get_column(0)); std::cout << std::endl;
-  std::cout << "HasNulls: " << gathered->get_column(0).view().has_nulls() << std::endl;
+TEST_F(MapLookupTest, NullMaps) { using namespace cudf::test; }
 
-  gathered = cudf::detail::gather(
-    table_for_gather,
-    fixed_width_column_wrapper<size_type>{4,3,2,1,-1},
-    cudf::detail::out_of_bounds_policy::IGNORE,
-    cudf::detail::negative_index_policy::NOT_ALLOWED
-  );
-  std::cout << "With IGNORE,NOT_ALLOWED, got: "; print(gathered->get_column(0)); std::cout << std::endl;
-  */
+TEST_F(MapLookupTest, DefensiveChecks)
+{
+  using namespace cudf::test;
+
+  auto list_offsets = fixed_width_column_wrapper<size_type>{{0, 2, 4}};
+  auto string_keys  = strings_column_wrapper{"0", "1", "1", "2"};
+  auto int_values   = fixed_width_column_wrapper<int32_t>{0, 1, 1, 2};
+
+  // Check that API insists on receiving List<Struct<String,String>>.
+  EXPECT_THROW(cudf::map_lookup(list_offsets, cudf::string_scalar("foo!")), cudf::logic_error);
+
+  auto structs = structs_column_wrapper{{string_keys, int_values}};
+  EXPECT_THROW(cudf::map_lookup(structs, cudf::string_scalar("foo!")), cudf::logic_error);
+
+  auto list_of_structs = cudf::make_lists_column(
+    2, list_offsets.release(), structs.release(), cudf::UNKNOWN_NULL_COUNT, {});
+
+  EXPECT_THROW(cudf::map_lookup(list_of_structs->view(), cudf::string_scalar("foo!")),
+               cudf::logic_error);
 }
 
 CUDF_TEST_PROGRAM_MAIN()

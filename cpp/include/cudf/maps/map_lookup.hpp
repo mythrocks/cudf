@@ -18,12 +18,10 @@
 
 #include "cudf/column/column.hpp"
 
-namespace cudf
-{
-    std::unique_ptr<column> two_pass_map_lookup(
-        column_view const& map_column,
-        string_scalar lookup_key,
-        rmm::mr::device_memory_resource* mr= rmm::mr::get_current_device_resource(),
-        cudaStream_t stream=0
-    );
+namespace cudf {
+std::unique_ptr<column> map_lookup(
+  column_view const& map_column,
+  string_scalar lookup_key,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource(),
+  cudaStream_t stream                 = 0);
 }
