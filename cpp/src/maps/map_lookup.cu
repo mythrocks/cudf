@@ -29,30 +29,31 @@
 
 namespace cudf {
 namespace {
-void __device__ process(size_type i,
+
+void __device__ search_each_list(size_type list_index,
                         column_device_view input,
                         mutable_column_device_view output,
                         string_scalar_device_view lookup_key)
 {
-  if (input.is_null(i)) {
-    output.element<size_type>(i) = -1;  // Not found.
+  if (input.is_null(list_index)) { // List row is null.
+    output.element<size_type>(list_index) = -1;  // Not found.
     return;
   }
 
   auto offsets{input.child(0)};
-  auto start_index{offsets.element<size_type>(i)};
-  auto end_index{offsets.element<size_type>(i + 1)};
+  auto start_index{offsets.element<size_type>(list_index)};
+  auto end_index{offsets.element<size_type>(list_index + 1)};
 
   auto key_column{input.child(1).child(0)};
 
-  for (size_type idx{start_index}; idx < end_index; ++idx) {
-    if (!key_column.is_null(idx) && key_column.element<string_view>(idx) == lookup_key.value()) {
-      output.element<size_type>(i) = idx;
+  for (size_type list_element_index{start_index}; list_element_index < end_index; ++list_element_index) {
+    if (!key_column.is_null(list_element_index) && key_column.element<string_view>(list_element_index) == lookup_key.value()) {
+      output.element<size_type>(list_index) = list_element_index;
       return;
     }
   }
 
-  output.element<size_type>(i) = -1;  // Not found.
+  output.element<size_type>(list_index) = -1;  // Not found.
 }
 
 template <int block_size>
@@ -70,7 +71,7 @@ __launch_bounds__(block_size) __global__
 
   while (i < input.size()) {
     volatile bool output_valid{true};
-    process(i, input, output, lookup_key);
+    search_each_list(i, input, output, lookup_key);
 
     // Set validity mask.
     cudf::bitmask_type result_mask{__ballot_sync(active_threads, output_valid)};
