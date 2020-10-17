@@ -50,6 +50,8 @@
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <memory>
+#include "thrust/execution_policy.h"
+#include "thrust/find.h"
 
 namespace cudf {
 namespace detail {
@@ -1287,18 +1289,68 @@ size_t multiplication_factor(cudf::data_type const& data_type)
 //   1. no grouping keys specified
 //   2. timetamps in ASCENDING order.
 // Treat as one single group.
-template <typename TimestampImpl_t>
+template <typename TimeT>
 std::unique_ptr<column> time_range_window_ASC(column_view const& input,
                                               column_view const& timestamp_column,
-                                              TimestampImpl_t preceding_window,
-                                              TimestampImpl_t following_window,
+                                              TimeT preceding_window,
+                                              TimeT following_window,
                                               size_type min_periods,
                                               std::unique_ptr<aggregation> const& aggr,
                                               rmm::mr::device_memory_resource* mr)
 {
-  auto preceding_calculator = [d_timestamps = timestamp_column.data<TimestampImpl_t>(),
+  auto p_timestamps_device_view = column_device_view::create(timestamp_column);
+
+  auto timestamp_begin = thrust::make_counting_iterator(0);
+  auto timestamp_end = thrust::make_counting_iterator(timestamp_column.size());
+
+  // TODO: Handle case where timestamp_column is not nullable.
+
+  auto nulls_begin = timestamp_column.has_nulls() 
+    ? thrust::find_if(
+        thrust::device, 
+        timestamp_begin,
+        timestamp_end,
+        [timestamps = *p_timestamps_device_view] __device__ (auto i) { return timestamps.is_null_nocheck(i); }
+      )
+    : timestamp_begin;
+  auto nulls_begin_idx = nulls_begin - timestamp_begin;
+
+  auto nulls_end = timestamp_column.has_nulls()
+    ? thrust::find_if(
+        thrust::device,
+        nulls_begin,
+        timestamp_end,
+        [timestamps = *p_timestamps_device_view] __device__ (auto i) { return !timestamps.is_null_nocheck(i); }
+      )
+    : timestamp_begin;
+  auto nulls_end_idx = nulls_end - timestamp_begin;
+
+  // Sanity checks: NULL values must be grouped together. 
+  // Either NULLS FIRST or NULLS LAST.
+  CUDF_EXPECTS(
+       !timestamp_column.has_nulls()
+    || nulls_begin_idx == 0
+    || nulls_end_idx == timestamp_column.size(),
+    "Expected nulls in timestamp column to be grouped together."
+  );
+
+  auto preceding_calculator = [nulls_begin_idx,
+                               nulls_end_idx,
+                               d_timestamps = timestamp_column.data<TimeT>(),
                                preceding_window] __device__(size_type idx) {
-    auto group_start                = 0;
+
+    if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
+      // Current row is in the null group.
+      // Must consider beginning of null-group as window start.
+      return idx - nulls_begin_idx + 1;
+    }
+
+    // timestamp[idx] not null. Binary search the group, excluding null group.
+    // If nulls_begin_idx == 0, either
+    //  1. NULLS FIRST ordering: Binary search starts where nulls_end_idx.
+    //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
+    // Otherwise, NULLS LAST ordering. Start at 0.
+    auto group_start                = nulls_begin_idx == 0 ? nulls_end_idx : 0;
     auto lowest_timestamp_in_window = d_timestamps[idx] - preceding_window;
 
     return ((d_timestamps + idx) - thrust::lower_bound(thrust::seq,
@@ -1308,10 +1360,25 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
            1;  // Add 1, for `preceding` to account for current row.
   };
 
-  auto following_calculator = [num_rows     = input.size(),
-                               d_timestamps = timestamp_column.data<TimestampImpl_t>(),
+  auto following_calculator = [nulls_begin_idx,
+                               nulls_end_idx,
+                               num_rows     = input.size(),
+                               d_timestamps = timestamp_column.data<TimeT>(),
                                following_window] __device__(size_type idx) {
-    auto group_end                   = num_rows;
+
+    if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
+      // Current row is in the null group.
+      // Window ends at the end of the null group.
+      return nulls_end_idx - idx - 1;
+    }
+
+    // timestamp[idx] not null. Binary search the group, excluding null group.
+    // If nulls_begin_idx == 0, either
+    //  1. NULLS FIRST ordering: Binary search ends at num_rows.
+    //  2. NO NULLS: Binary search also ends at num_rows.
+    // Otherwise, NULLS LAST ordering. End at nulls_end_idx.
+ 
+    auto group_end                   = nulls_begin_idx == 0? num_rows : nulls_begin_idx;
     auto highest_timestamp_in_window = d_timestamps[idx] + following_window;
 
     return (thrust::upper_bound(thrust::seq,

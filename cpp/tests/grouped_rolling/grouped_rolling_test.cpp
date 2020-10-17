@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <vector>
 
+/*
 using cudf::bitmask_type;
 
 const std::string cuda_func{
@@ -1233,6 +1234,41 @@ TYPED_TEST(GroupedTimeRangeRollingTest, SimplePartitionedStaticWindowsWithNoGrou
                          preceding_window_in_days,
                          following_window_in_days,
                          1);
+}
+*/
+
+struct TempTest : public cudf::test::BaseFixture{};
+TEST_F(TempTest, MismatchedSums)
+{
+  using namespace cudf::test;
+  int64_t ts = 631152000L * 1000000L;
+  auto const agg_col = fixed_width_column_wrapper<int8_t>{30, 30, 30, 30, 30, 30, 30};
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep> {
+    {ts, ts, ts, ts, ts, ts, ts},
+    { 0,  0,  0,   1,  1,  1,  1} // Timestamp-based ordering, NULLS FIRST.
+  };
+  auto const group_col = fixed_width_column_wrapper<int8_t>{30, 30, 30, 30, 30, 30, 30};
+  const cudf::table_view grouping_keys{std::vector<cudf::column_view>{}};
+  const auto output = cudf::grouped_time_range_rolling_window(
+                        grouping_keys,
+                        time_col,
+                        cudf::order::ASCENDING,
+                        agg_col,
+                        1,
+                        1,
+                        1,
+                        cudf::make_sum_aggregation()
+                      );
+  /*
+  expect_columns_equal(
+    output->view(),
+    fixed_width_column_wrapper<int64_t>{
+      {0, 0, 0, 30, 90, 90, 90},
+      {1, 1, 1,  1,  1,  1,  1}
+    }
+  );
+  */
+  std::cout << "CALEB: Output: "; print(*output); std::cout << std::endl;
 }
 
 CUDF_TEST_PROGRAM_MAIN()
