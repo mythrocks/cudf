@@ -1245,14 +1245,13 @@ TEST_F(TempTest, MismatchedSums)
   auto const agg_col = fixed_width_column_wrapper<int8_t>{30, 30, 30, 30, 30, 30, 30};
   auto const time_col = fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep> {
     {ts, ts, ts, ts, ts, ts, ts},
-    { 0,  0,  0,   1,  1,  1,  1} // Timestamp-based ordering, NULLS FIRST.
+    { 1,  1,  1,   1,  0,  0,  0} // Timestamp-based ordering, NULLS FIRST.
   };
-  auto const group_col = fixed_width_column_wrapper<int8_t>{30, 30, 30, 30, 30, 30, 30};
   const cudf::table_view grouping_keys{std::vector<cudf::column_view>{}};
   const auto output = cudf::grouped_time_range_rolling_window(
                         grouping_keys,
                         time_col,
-                        cudf::order::ASCENDING,
+                        cudf::order::DESCENDING,
                         agg_col,
                         1,
                         1,
