@@ -32,7 +32,6 @@
 #include <algorithm>
 #include <vector>
 
-/*
 using cudf::bitmask_type;
 
 const std::string cuda_func{
@@ -1235,72 +1234,314 @@ TYPED_TEST(GroupedTimeRangeRollingTest, SimplePartitionedStaticWindowsWithNoGrou
                          following_window_in_days,
                          1);
 }
-*/
 
-struct TempTest : public cudf::test::BaseFixture{};
-TEST_F(TempTest, MismatchedSumsSingleGroupDesc)
+template <typename T>
+struct TypedNullTimestampTestForRangeQueries : public cudf::test::BaseFixture{};
+
+struct NullTimestampTestForRangeQueries : public cudf::test::BaseFixture{};
+
+TYPED_TEST_CASE(TypedNullTimestampTestForRangeQueries, cudf::test::IntegralTypes);
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountSingleGroupTimestampASCNullsFirst)
 {
   using namespace cudf::test;
-  int64_t ts = 631152000L * 1000000L;
-  auto const agg_col = fixed_width_column_wrapper<int8_t>{30, 30, 30, 30, 30, 30, 30};
-  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep> {
-    {ts, ts, ts, ts, ts, ts, ts},
-    { 1,  1,  1,   1,  0,  0,  0} // Timestamp-based ordering, NULLS FIRST.
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col  = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}
   };
-  const cudf::table_view grouping_keys{std::vector<cudf::column_view>{}};
-  const auto output = cudf::grouped_time_range_rolling_window(
-                        grouping_keys,
-                        time_col,
-                        cudf::order::DESCENDING,
-                        agg_col,
-                        1,
-                        1,
-                        1,
-                        cudf::make_sum_aggregation()
-                      );
-  /*
-  expect_columns_equal(
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::ASCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
     output->view(),
-    fixed_width_column_wrapper<int64_t>{
-      {0, 0, 0, 30, 90, 90, 90},
-      {1, 1, 1,  1,  1,  1,  1}
+    fixed_width_column_wrapper<cudf::size_type>{
+      {4, 4, 4, 4, 1, 2, 2, 3, 3, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
     }
   );
-  */
-  std::cout << "CALEB: Output: "; print(*output); std::cout << std::endl;
 }
 
-TEST_F(TempTest, MismatchedSumsMultipleGroupsAscNullsFirst)
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountSingleGroupTimestampASCNullsLast)
 {
   using namespace cudf::test;
-  int64_t ts = 631152000L * 1000000L;
-  auto const agg_col = fixed_width_column_wrapper<int8_t>{0, 0, 0, 30, 30, 30, 30, 30};
-  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep> {
-    {ts, ts, ts, ts, ts, ts, ts, ts},
-    { 1,  1,  1,  0,  0,  1,  1,  1} // Timestamp-based ordering, NULLS FIRST.
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col  = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}
   };
-  auto const grouping_col = fixed_width_column_wrapper<int8_t>{0, 0, 0, 30, 30, 30, 30, 30};
-  const cudf::table_view grouping_keys{std::vector<cudf::column_view>{grouping_col}};
-  const auto output = cudf::grouped_time_range_rolling_window(
-                        grouping_keys,
-                        time_col,
-                        cudf::order::ASCENDING,
-                        agg_col,
-                        1,
-                        1,
-                        1,
-                        cudf::make_sum_aggregation()
-                      );
-  /*
-  expect_columns_equal(
+
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {1, 1, 1, 1, 1, 1, 0, 0, 0, 0}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::ASCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
     output->view(),
-    fixed_width_column_wrapper<int64_t>{
-      {0, 0, 0, 30, 90, 90, 90},
-      {1, 1, 1,  1,  1,  1,  1}
+    fixed_width_column_wrapper<cudf::size_type>{
+      {2, 3, 3, 3, 2, 1, 4, 4, 4, 4},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
     }
   );
-  */
-  std::cout << "CALEB: Output: "; print(*output); std::cout << std::endl;
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountMultiGroupTimestampASCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {1, 2, 2, 1, 2, 1, 2, 3, 4, 5},
+    {0, 0, 0, 1, 1, 0, 0, 1, 1, 1}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::ASCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {3, 3, 3, 2, 2, 2, 2, 2, 3, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountMultiGroupTimestampASCNullsLast)
+{
+  using namespace cudf::test;
+  using T = int32_t;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {1, 2, 2, 1, 3, 1, 2, 3, 4, 5},
+    {1, 1, 1, 0, 0, 1, 1, 1, 0, 0}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::ASCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {3, 3, 3, 2, 2, 2, 3, 2, 2, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountSingleGroupTimestampDESCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col  = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}
+  };
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
+    {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::DESCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {4, 4, 4, 4, 1, 2, 2, 3, 3, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountSingleGroupTimestampDESCNullsLast)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col  = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+    {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}
+  };
+
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
+    {1, 1, 1, 1, 1, 1, 0, 0, 0, 0}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::DESCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {2, 3, 3, 3, 2, 1, 4, 4, 4, 4},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountMultiGroupTimestampDESCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {4, 3, 2, 1, 0, 9, 8, 7, 6, 5},
+    {0, 0, 0, 1, 1, 0, 0, 1, 1, 1}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::DESCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {3, 3, 3, 2, 2, 2, 2, 2, 3, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
+}
+
+TYPED_TEST(TypedNullTimestampTestForRangeQueries, CountMultiGroupTimestampDESCNullsLast)
+{
+  using namespace cudf::test;
+  using T = int32_t;
+  
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  auto const time_col = fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep> {
+    {4, 3, 2, 1, 0, 9, 8, 7, 6, 5},
+    {1, 1, 1, 0, 0, 1, 1, 1, 0, 0}
+  };
+
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
+  auto const preceding   = 1L;
+  auto const following   = 1L;
+  auto const min_periods = 1L;
+  auto const output = cudf::grouped_time_range_rolling_window(
+    grouping_keys,
+    time_col,
+    cudf::order::DESCENDING,
+    agg_col,
+    preceding,
+    following,
+    min_periods,
+    cudf::make_count_aggregation()
+  );
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
+    output->view(),
+    fixed_width_column_wrapper<cudf::size_type>{
+      {2, 3, 2, 2, 2, 2, 3, 2, 2, 2},
+      {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    }
+  );
 }
 
 CUDF_TEST_PROGRAM_MAIN()
