@@ -1292,42 +1292,39 @@ size_t multiplication_factor(cudf::data_type const& data_type)
 // The input column is sorted, with all null values clustered either
 // at the beginning of the column or at the end.
 // If no null values are founds, null_begin and null_end are 0.
-std::tuple<size_type, size_type> get_null_bounds_for_timestamp_column(column_view const& timestamp_column)
+std::tuple<size_type, size_type> get_null_bounds_for_timestamp_column(
+  column_view const& timestamp_column)
 {
   auto p_timestamps_device_view = column_device_view::create(timestamp_column);
-  auto timestamp_begin = thrust::make_counting_iterator(0);
-  auto timestamp_end = thrust::make_counting_iterator(timestamp_column.size());
+  auto timestamp_begin          = thrust::make_counting_iterator(0);
+  auto timestamp_end            = thrust::make_counting_iterator(timestamp_column.size());
 
   // TODO: Handle case where timestamp_column is not nullable.
 
-  auto nulls_begin = timestamp_column.has_nulls() 
-    ? thrust::find_if(
-        thrust::device, 
-        timestamp_begin,
-        timestamp_end,
-        [timestamps = *p_timestamps_device_view] __device__ (auto i) { return timestamps.is_null_nocheck(i); }
-      )
-    : timestamp_begin;
+  auto nulls_begin = timestamp_column.has_nulls()
+                       ? thrust::find_if(thrust::device,
+                                         timestamp_begin,
+                                         timestamp_end,
+                                         [timestamps = *p_timestamps_device_view] __device__(
+                                           auto i) { return timestamps.is_null_nocheck(i); })
+                       : timestamp_begin;
   auto nulls_begin_idx = nulls_begin - timestamp_begin;
 
   auto nulls_end = timestamp_column.has_nulls()
-    ? thrust::find_if(
-        thrust::device,
-        nulls_begin,
-        timestamp_end,
-        [timestamps = *p_timestamps_device_view] __device__ (auto i) { return !timestamps.is_null_nocheck(i); }
-      )
-    : timestamp_begin;
+                     ? thrust::find_if(thrust::device,
+                                       nulls_begin,
+                                       timestamp_end,
+                                       [timestamps = *p_timestamps_device_view] __device__(auto i) {
+                                         return !timestamps.is_null_nocheck(i);
+                                       })
+                     : timestamp_begin;
   auto nulls_end_idx = nulls_end - timestamp_begin;
 
-  // Sanity checks: NULL values must be grouped together. 
+  // Sanity checks: NULL values must be grouped together.
   // Either NULLS FIRST or NULLS LAST.
-  CUDF_EXPECTS(
-       !timestamp_column.has_nulls()
-    || nulls_begin_idx == 0
-    || nulls_end_idx == timestamp_column.size(),
-    "Expected nulls in timestamp column to be grouped together."
-  );
+  CUDF_EXPECTS(!timestamp_column.has_nulls() || nulls_begin_idx == 0 ||
+                 nulls_end_idx == timestamp_column.size(),
+               "Expected nulls in timestamp column to be grouped together.");
 
   return std::make_tuple(nulls_begin_idx, nulls_end_idx);
 }
@@ -1352,7 +1349,6 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
                                nulls_end_idx,
                                d_timestamps = timestamp_column.data<TimeT>(),
                                preceding_window] __device__(size_type idx) -> size_type {
-
     if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
       // Current row is in the null group.
       // Must consider beginning of null-group as window start.
@@ -1379,7 +1375,6 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
                                num_rows     = input.size(),
                                d_timestamps = timestamp_column.data<TimeT>(),
                                following_window] __device__(size_type idx) -> size_type {
-
     if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
       // Current row is in the null group.
       // Window ends at the end of the null group.
@@ -1391,8 +1386,8 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
     //  1. NULLS FIRST ordering: Binary search ends at num_rows.
     //  2. NO NULLS: Binary search also ends at num_rows.
     // Otherwise, NULLS LAST ordering. End at nulls_begin_idx.
- 
-    auto group_end                   = nulls_begin_idx == 0? num_rows : nulls_begin_idx;
+
+    auto group_end                   = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
     auto highest_timestamp_in_window = d_timestamps[idx] + following_window;
 
     return (thrust::upper_bound(thrust::seq,
@@ -1424,10 +1419,9 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
 // Each group in the input timestamp column must be sorted,
 // with null values clustered at either the start or the end of each group.
 // If there are no nulls for any given group, (nulls_begin, nulls_end) == (0,0).
-std::tuple<rmm::device_vector<size_type>, rmm::device_vector<size_type>> get_null_bounds_for_timestamp_column(
-  column_view const& timestamp_column,
-  rmm::device_vector<size_type> const& group_offsets
-)
+std::tuple<rmm::device_vector<size_type>, rmm::device_vector<size_type>>
+get_null_bounds_for_timestamp_column(column_view const& timestamp_column,
+                                     rmm::device_vector<size_type> const& group_offsets)
 {
   // For each group, the null values are themselves clustered
   // at the beginning or the end of the group.
@@ -1435,12 +1429,11 @@ std::tuple<rmm::device_vector<size_type>, rmm::device_vector<size_type>> get_nul
 
   // If the input has n groups, group_offsets will have n+1 values.
   // null_start and null_end should eventually have 1 entry per group.
-  auto null_start = rmm::device_vector<size_type>(group_offsets.begin(), group_offsets.end()-1);
-  auto null_end   = rmm::device_vector<size_type>(group_offsets.begin(), group_offsets.end()-1);
-  if (timestamp_column.has_nulls())
-  {
+  auto null_start = rmm::device_vector<size_type>(group_offsets.begin(), group_offsets.end() - 1);
+  auto null_end   = rmm::device_vector<size_type>(group_offsets.begin(), group_offsets.end() - 1);
+  if (timestamp_column.has_nulls()) {
     auto p_timestamps_device_view = column_device_view::create(timestamp_column);
-    size_type num_rows = timestamp_column.size();
+    size_type num_rows            = timestamp_column.size();
 
     // For each group_label i, find the offsets in the timestamp column
     // for the beginning group of null timestamps.
@@ -1448,50 +1441,44 @@ std::tuple<rmm::device_vector<size_type>, rmm::device_vector<size_type>> get_nul
     thrust::transform(
       thrust::device,
       thrust::make_counting_iterator(static_cast<size_type>(0)),
-      thrust::make_counting_iterator(static_cast<size_type>(group_offsets.size()-1)),
+      thrust::make_counting_iterator(static_cast<size_type>(group_offsets.size() - 1)),
       null_start.begin(),
-      [
-        d_timestamps = *p_timestamps_device_view,
-        d_group_offsets = group_offsets.data().get()
-      ] __device__ (auto group_label) { 
+      [d_timestamps    = *p_timestamps_device_view,
+       d_group_offsets = group_offsets.data().get()] __device__(auto group_label) {
         auto group_start = d_group_offsets[group_label];
-        auto group_end   = d_group_offsets[group_label+1];
-        auto nulls_begin  = thrust::find_if(thrust::seq, 
-                                           thrust::make_counting_iterator(group_start),
-                                           thrust::make_counting_iterator(group_end),
-                                           [&d_timestamps](auto i) { return d_timestamps.is_null_nocheck(i); }
-                                          );
-        return nulls_begin == thrust::make_counting_iterator(group_end) // i.e. No nulls in group.
-               ? group_start
-               : group_start + (nulls_begin - thrust::make_counting_iterator(group_start));
-      }
-    );
+        auto group_end   = d_group_offsets[group_label + 1];
+        auto nulls_begin =
+          thrust::find_if(thrust::seq,
+                          thrust::make_counting_iterator(group_start),
+                          thrust::make_counting_iterator(group_end),
+                          [&d_timestamps](auto i) { return d_timestamps.is_null_nocheck(i); });
+        return nulls_begin == thrust::make_counting_iterator(group_end)  // i.e. No nulls in group.
+                 ? group_start
+                 : group_start + (nulls_begin - thrust::make_counting_iterator(group_start));
+      });
 
     // TODO: FIXME: Attempt to do this in one scan.
-    // Now, for each group_label i, find the end of the null group. 
+    // Now, for each group_label i, find the end of the null group.
     // (i.e. the first non-null following the first null).
     // If no nulls in the group, point to the beginning of the group.
     thrust::transform(
       thrust::device,
       thrust::make_counting_iterator(static_cast<size_type>(0)),
-      thrust::make_counting_iterator(static_cast<size_type>(group_offsets.size()-1)),
+      thrust::make_counting_iterator(static_cast<size_type>(group_offsets.size() - 1)),
       null_end.begin(),
-      [
-        d_timestamps = *p_timestamps_device_view,
-        d_group_offsets = group_offsets.data().get(),
-        d_null_start = null_start.data().get()
-      ] __device__ (auto group_label) {
+      [d_timestamps    = *p_timestamps_device_view,
+       d_group_offsets = group_offsets.data().get(),
+       d_null_start    = null_start.data().get()] __device__(auto group_label) {
         auto group_start = d_group_offsets[group_label];
-        auto nulls_begin  = d_null_start[group_label];
-        auto group_end   = d_group_offsets[group_label+1];
-        auto nulls_end    = thrust::find_if(thrust::seq,
-                                            thrust::make_counting_iterator(nulls_begin),
-                                            thrust::make_counting_iterator(group_end),
-                                            [&d_timestamps](auto i) { return !d_timestamps.is_null_nocheck(i);}
-                                          );
+        auto nulls_begin = d_null_start[group_label];
+        auto group_end   = d_group_offsets[group_label + 1];
+        auto nulls_end =
+          thrust::find_if(thrust::seq,
+                          thrust::make_counting_iterator(nulls_begin),
+                          thrust::make_counting_iterator(group_end),
+                          [&d_timestamps](auto i) { return !d_timestamps.is_null_nocheck(i); });
         return group_start + (nulls_end - thrust::make_counting_iterator(group_start));
-      }
-    );
+      });
   }
 
   return std::make_pair(std::move(null_start), std::move(null_end));
@@ -1511,7 +1498,8 @@ std::unique_ptr<column> time_range_window_ASC(
   rmm::mr::device_memory_resource* mr)
 {
   rmm::device_vector<size_type> null_start, null_end;
-  std::tie(null_start, null_end) = get_null_bounds_for_timestamp_column(timestamp_column, group_offsets);
+  std::tie(null_start, null_end) =
+    get_null_bounds_for_timestamp_column(timestamp_column, group_offsets);
 
   auto preceding_calculator = [d_group_offsets = group_offsets.data().get(),
                                d_group_labels  = group_labels.data().get(),
@@ -1519,11 +1507,10 @@ std::unique_ptr<column> time_range_window_ASC(
                                d_nulls_begin   = null_start.data().get(),
                                d_nulls_end     = null_end.data().get(),
                                preceding_window] __device__(size_type idx) -> size_type {
-    
-    auto group_label                = d_group_labels[idx];
-    auto group_start                = d_group_offsets[group_label];
-    auto nulls_begin                = d_nulls_begin[group_label];
-    auto nulls_end                  = d_nulls_end[group_label];
+    auto group_label = d_group_labels[idx];
+    auto group_start = d_group_offsets[group_label];
+    auto nulls_begin = d_nulls_begin[group_label];
+    auto nulls_end   = d_nulls_end[group_label];
 
     // If idx lies in the null-range, the window is the null range.
     if (idx >= nulls_begin && idx < nulls_end) {
@@ -1537,7 +1524,7 @@ std::unique_ptr<column> time_range_window_ASC(
     //  1. NULLS FIRST ordering: Search must begin at nulls_end.
     //  2. NO NULLS: Search must begin at group_start (which also equals nulls_end.)
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
-    auto search_start = nulls_begin == group_start? nulls_end : group_start;
+    auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
     auto lowest_timestamp_in_window = d_timestamps[idx] - preceding_window;
 
@@ -1555,12 +1542,12 @@ std::unique_ptr<column> time_range_window_ASC(
                                d_nulls_end     = null_end.data().get(),
                                following_window] __device__(size_type idx) -> size_type {
     auto group_label = d_group_labels[idx];
-    auto group_start                = d_group_offsets[group_label];
+    auto group_start = d_group_offsets[group_label];
     auto group_end =
       d_group_offsets[group_label +
                       1];  // Cannot fall off the end, since offsets is capped with `input.size()`.
-    auto nulls_begin                = d_nulls_begin[group_label];
-    auto nulls_end                  = d_nulls_end[group_label];
+    auto nulls_begin = d_nulls_begin[group_label];
+    auto nulls_end   = d_nulls_end[group_label];
 
     // If idx lies in the null-range, the window is the null range.
     if (idx >= nulls_begin && idx < nulls_end) {
@@ -1574,7 +1561,7 @@ std::unique_ptr<column> time_range_window_ASC(
     //  1. NULLS FIRST ordering: Search ends at group_end.
     //  2. NO NULLS: Search ends at group_end.
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
-    auto search_end = nulls_begin == group_start? group_end : nulls_begin;
+    auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
     auto highest_timestamp_in_window = d_timestamps[idx] + following_window;
 
@@ -1614,8 +1601,8 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
   size_type nulls_begin_idx, nulls_end_idx;
   std::tie(nulls_begin_idx, nulls_end_idx) = get_null_bounds_for_timestamp_column(timestamp_column);
 
-  auto preceding_calculator = [nulls_begin_idx, 
-                               nulls_end_idx, 
+  auto preceding_calculator = [nulls_begin_idx,
+                               nulls_end_idx,
                                d_timestamps = timestamp_column.data<TimeT>(),
                                preceding_window] __device__(size_type idx) -> size_type {
     if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
@@ -1629,7 +1616,7 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
     //  1. NULLS FIRST ordering: Binary search starts where nulls_end_idx.
     //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
     // Otherwise, NULLS LAST ordering. Start at 0.
-    auto group_start                 = nulls_begin_idx == 0? nulls_end_idx : 0;
+    auto group_start                 = nulls_begin_idx == 0 ? nulls_end_idx : 0;
     auto highest_timestamp_in_window = d_timestamps[idx] + preceding_window;
 
     return ((d_timestamps + idx) -
@@ -1641,12 +1628,11 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
            1;  // Add 1, for `preceding` to account for current row.
   };
 
-  auto following_calculator = [nulls_begin_idx, 
+  auto following_calculator = [nulls_begin_idx,
                                nulls_end_idx,
                                num_rows     = input.size(),
                                d_timestamps = timestamp_column.data<TimeT>(),
                                following_window] __device__(size_type idx) -> size_type {
-
     if (idx >= nulls_begin_idx && idx < nulls_end_idx) {
       // Current row is in the null group.
       // Window ends at the end of the null group.
@@ -1659,7 +1645,7 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
     //  2. NO NULLS: Search also ends at num_rows.
     // Otherwise, NULLS LAST ordering: End at nulls_begin_idx.
 
-    auto group_end = nulls_begin_idx == 0? num_rows : nulls_begin_idx;  
+    auto group_end                  = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
     auto lowest_timestamp_in_window = d_timestamps[idx] - following_window;
 
     return (thrust::upper_bound(thrust::seq,
@@ -1697,7 +1683,8 @@ std::unique_ptr<column> time_range_window_DESC(
   rmm::mr::device_memory_resource* mr)
 {
   rmm::device_vector<size_type> null_start, null_end;
-  std::tie(null_start, null_end) = get_null_bounds_for_timestamp_column(timestamp_column, group_offsets);
+  std::tie(null_start, null_end) =
+    get_null_bounds_for_timestamp_column(timestamp_column, group_offsets);
 
   auto preceding_calculator = [d_group_offsets = group_offsets.data().get(),
                                d_group_labels  = group_labels.data().get(),
@@ -1705,11 +1692,10 @@ std::unique_ptr<column> time_range_window_DESC(
                                d_nulls_begin   = null_start.data().get(),
                                d_nulls_end     = null_end.data().get(),
                                preceding_window] __device__(size_type idx) -> size_type {
-
-    auto group_label                 = d_group_labels[idx];
-    auto group_start                 = d_group_offsets[group_label];
-    auto nulls_begin                = d_nulls_begin[group_label];
-    auto nulls_end                  = d_nulls_end[group_label];
+    auto group_label = d_group_labels[idx];
+    auto group_start = d_group_offsets[group_label];
+    auto nulls_begin = d_nulls_begin[group_label];
+    auto nulls_end   = d_nulls_end[group_label];
 
     // If idx lies in the null-range, the window is the null range.
     if (idx >= nulls_begin && idx < nulls_end) {
@@ -1723,7 +1709,7 @@ std::unique_ptr<column> time_range_window_DESC(
     //  1. NULLS FIRST ordering: Search must begin at nulls_end.
     //  2. NO NULLS: Search must begin at group_start (which also equals nulls_end.)
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
-    auto search_start = nulls_begin == group_start? nulls_end : group_start;
+    auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
     auto highest_timestamp_in_window = d_timestamps[idx] + preceding_window;
 
@@ -1743,10 +1729,10 @@ std::unique_ptr<column> time_range_window_DESC(
                                d_nulls_end     = null_end.data().get(),
                                following_window] __device__(size_type idx) -> size_type {
     auto group_label = d_group_labels[idx];
-    auto group_start                = d_group_offsets[group_label];
-    auto group_end = d_group_offsets[group_label + 1];
-    auto nulls_begin                = d_nulls_begin[group_label];
-    auto nulls_end                  = d_nulls_end[group_label];
+    auto group_start = d_group_offsets[group_label];
+    auto group_end   = d_group_offsets[group_label + 1];
+    auto nulls_begin = d_nulls_begin[group_label];
+    auto nulls_end   = d_nulls_end[group_label];
 
     // If idx lies in the null-range, the window is the null range.
     if (idx >= nulls_begin && idx < nulls_end) {
@@ -1760,7 +1746,7 @@ std::unique_ptr<column> time_range_window_DESC(
     //  1. NULLS FIRST ordering: Search ends at group_end.
     //  2. NO NULLS: Search ends at group_end.
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
-    auto search_end = nulls_begin == group_start? group_end : nulls_begin;
+    auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
     auto lowest_timestamp_in_window = d_timestamps[idx] - following_window;
 
