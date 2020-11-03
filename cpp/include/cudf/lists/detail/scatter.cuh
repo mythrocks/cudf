@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cuda_runtime.h>
 #include <cudf/lists/list_device_view.cuh>
 
 namespace cudf {
@@ -48,8 +49,6 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
       output = vector.data().get()
     ] __device__ (size_type idx)
     {
-      // if (lists_col_d_v.is_null(idx))
-      // {}
       output[idx] = lists_col_d_v[idx];
     }
 
@@ -57,51 +56,69 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
   return vector;
 }
 
-/**
- * @brief Construct rmm::device_vector<list_device_view> from
- *        specified column.
- */
-rmm::device_vector<cudf::list_device_view> list_vector_from_column(
-  cudf::lists_column_view const& lists_column,
-  cudaStream_t stream
-)
+struct temp_functor
 {
-  auto ptr_lists_column_device_view = column_device_view::create(lists_column.parent(), stream);
-  auto lists_col_d_v = cudf::detail::lists_column_device_view(*ptr_lists_column_device_view);
-  auto n_rows = lists_column.size();
-
-  auto vector = rmm::device_vector<cudf::list_device_view>(n_rows);
-
-  thrust::for_each_n(
-    rmm::exec_policy(stream)->on(stream),
-    thrust::make_counting_iterator<size_type>(0),
-    n_rows,
-    [
-      lists_col_d_v,
-      output = vector.data().get()
-    ] __device__ (size_type idx)
-    {
-      // if (lists_col_d_v.is_null(idx))
-      // {}
-      output[idx] = lists_col_d_v[idx];
-    }
-
-  );
-  return vector;
-}
+  void operator() __device__ (cudf::size_type) const {}
+};
 
 struct list_child_constructor
 {
   template <typename T,
             std::enable_if_t<cudf::is_fixed_width<T>()>* = nullptr>
-  std::unique_ptr<column> operator()() const
+  std::unique_ptr<column> operator()(
+    rmm::device_vector<cudf::list_device_view> const& list_vector, 
+    cudf::column_view const& list_offsets,
+    rmm::mr::device_memory_resource* mr,
+    cudaStream_t stream) const
   {
-    std::cout << "CALEB: Fixed width list_child_constructor<" << typeid(T).name() << ">" << std::endl;
-    CUDF_FAIL("list_child_constructor unimplemented!");
+    int32_t num_child_rows{};
+    CUDA_TRY(cudaMemcpyAsync(&num_child_rows, list_offsets.data<int32_t>()+list_offsets.size()-1, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
+
+    auto child_column = cudf::make_fixed_width_column(
+      cudf::data_type{cudf::type_to_id<T>()},
+      num_child_rows,
+      cudf::mask_state::UNALLOCATED,
+      stream,
+      mr
+    );
+
+        /*
+    thrust::for_each_n(
+      rmm::exec_policy(stream)->on(stream),
+      thrust::make_counting_iterator<size_type>(0),
+      num_child_rows,
+      [
+        d_list_device_view = list_vector.data().get(),
+        d_offsets          = list_offsets.template data<int32_t>(),
+        d_child_column     = child_column->mutable_view().data<T>()
+      ] __device__ (cudf::size_type row_index)
+      {
+        auto start_offset = d_offsets[row_index];
+        // auto end_offset   = d_offsets[row_index + 1];
+        auto list_device_view = d_list_device_view[row_index];
+
+        thrust::for_each_n(
+          thrust::seq,
+          thrust::make_counting_iterator<size_type>(0),
+          list_device_view.size(),
+          [start_offset, list_device_view, d_child_column] __device__ (auto list_element_idx)
+          {
+            d_child_column[start_offset + list_element_idx] = list_device_view.element<T>(list_element_idx);
+          }
+        );
+      }
+    );
+        */
+
+    return std::make_unique<cudf::column>(list_offsets); // TODO: Replace with constructed child column.
   }
 
   template <typename T, std::enable_if_t<!cudf::is_fixed_width<T>()>* = nullptr>
-  std::unique_ptr<column> operator()() const
+  std::unique_ptr<column> operator()(
+    rmm::device_vector<cudf::list_device_view> const& list_vector, 
+    cudf::column_view const& list_offsets,
+    rmm::mr::device_memory_resource* mr,
+    cudaStream_t stream) const
   {
     std::cout << "CALEB: list_child_constructor<" << typeid(T).name() << std::endl;
     CUDF_FAIL("list_child_constructor unsupported!");
@@ -145,11 +162,6 @@ std::unique_ptr<column> scatter(
 
     std::cout << "CALEB: Inside scatter_list()!" << std::endl;
 
-    // TODO: FIXME:
-    //  source_vector and target_vector contain list_device_views that depend on
-    //  lists_column_device_views being alive, for use.
-    //  Must construct lists_column_device_views here, before calling list_vector_from_column().
-
     // TODO: Deep(er) checks that source and target have identical types.
 
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
@@ -173,9 +185,21 @@ std::unique_ptr<column> scatter(
       target_vector.begin()
     );
 
+    auto list_size_begin = thrust::make_transform_iterator(target_vector.begin(), [] __device__(list_device_view l) { return l.size(); });
+    auto offsets_column = cudf::strings::detail::make_offsets_child_column(
+      list_size_begin,
+      list_size_begin + target.size(),
+      mr,
+      stream
+    );
+
     return cudf::type_dispatcher(
       child_column_type, 
-      list_child_constructor{}
+      list_child_constructor{},
+      target_vector,
+      offsets_column->view(),
+      mr,
+      stream
     );
 }
 
