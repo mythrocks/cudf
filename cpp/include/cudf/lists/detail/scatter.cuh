@@ -28,7 +28,6 @@ namespace {
  * @brief Construct rmm::device_vector<list_device_view> from
  *        specified column.
  */
-/*
 rmm::device_vector<cudf::list_device_view> list_vector_from_column(
   cudf::detail::lists_column_device_view const& lists_col_d_v,
   cudaStream_t stream
@@ -57,7 +56,6 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
   );
   return vector;
 }
-*/
 
 /**
  * @brief Construct rmm::device_vector<list_device_view> from
@@ -155,17 +153,15 @@ std::unique_ptr<column> scatter(
     // TODO: Deep(er) checks that source and target have identical types.
 
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
-    // auto source_device_view = column_device_view::create(source, stream);
-    // auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*column_device_view::create(source, stream));
-    // auto source_vector = list_vector_from_column(source_lists_column_device_view, stream);
-    auto source_vector = list_vector_from_column(source_lists_column_view, stream);
+    auto source_device_view = column_device_view::create(source, stream);
+    auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*source_device_view);
+    auto source_vector = list_vector_from_column(source_lists_column_device_view, stream);
     std::cout << "CALEB: Source vector size: " << source_vector.size() << std::endl;
 
     auto target_lists_column_view = lists_column_view(target); // Checks that target is a list column.
-    // auto target_device_view = column_device_view::create(target, stream);
-    // auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*column_device_view::create(target, stream));
-    // auto target_vector = list_vector_from_column(target_lists_column_device_view, stream);
-    auto target_vector = list_vector_from_column(target_lists_column_view, stream);
+    auto target_device_view = column_device_view::create(target, stream);
+    auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*target_device_view);
+    auto target_vector = list_vector_from_column(target_lists_column_device_view, stream);
     std::cout << "CALEB: Target vector size: " << target_vector.size() << std::endl;
 
     // Scatter.
