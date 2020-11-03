@@ -18,6 +18,7 @@
 
 #include <cuda_runtime.h>
 #include <cudf/lists/list_device_view.cuh>
+#include <cinttypes>
 
 namespace cudf {
 namespace lists {
@@ -56,9 +57,10 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
   return vector;
 }
 
-// Workaround for not being able to use a lambda.
 struct list_child_constructor
 {
+  // Workaround for not being able to use a lambda.
+  /*
   template <typename T>
   struct copy_child_column_elements
   {
@@ -101,10 +103,10 @@ struct list_child_constructor
       int32_t const* d_offsets;
       T* d_child_column;
   };
+  */
 
-  template <typename T,
-            std::enable_if_t<cudf::is_fixed_width<T>()>* = nullptr>
-  std::unique_ptr<column> operator()(
+  template <typename T>
+  std::enable_if_t<cudf::is_fixed_width<T>(), std::unique_ptr<column>> operator()(
     rmm::device_vector<cudf::list_device_view> const& list_vector, 
     cudf::column_view const& list_offsets,
     rmm::mr::device_memory_resource* mr,
@@ -121,14 +123,15 @@ struct list_child_constructor
       mr
     );
 
+    /*
     thrust::for_each_n(
       rmm::exec_policy(stream)->on(stream),
       thrust::make_counting_iterator<size_type>(0),
       num_child_rows,
       copy_child_column_elements<T>{list_vector, list_offsets, child_column->mutable_view()}
     );
+    */
 
-    /*
     thrust::for_each_n(
       rmm::exec_policy(stream)->on(stream),
       thrust::make_counting_iterator<size_type>(0),
@@ -154,14 +157,13 @@ struct list_child_constructor
         );
       }
     );
-    */
 
     // return std::make_unique<cudf::column>(list_offsets); // TODO: Replace with constructed child column.
     return std::make_unique<cudf::column>(child_column->view()); // TODO: Replace with constructed child column.
   }
 
-  template <typename T, std::enable_if_t<!cudf::is_fixed_width<T>()>* = nullptr>
-  std::unique_ptr<column> operator()(
+  template <typename T> 
+  std::enable_if_t<!cudf::is_fixed_width<T>(), std::unique_ptr<column>> operator()(
     rmm::device_vector<cudf::list_device_view> const& list_vector, 
     cudf::column_view const& list_offsets,
     rmm::mr::device_memory_resource* mr,
@@ -230,6 +232,23 @@ std::unique_ptr<column> scatter(
       source_vector.end(),
       scatter_map_begin,
       target_vector.begin()
+    );
+
+    std::cout << "CALEB: Post scatter: Target vector size: " << target.size() << std::endl;
+    thrust::for_each(
+      rmm::exec_policy(stream)->on(stream),
+      // thrust::seq,
+      target_vector.begin(),
+      target_vector.end(),
+      []__device__(auto list)
+      {
+        printf(" list(size:%" PRId32 ") [", list.size());
+        for (int i(0); i<list.size(); ++i)
+        {
+          printf("%" PRId32, list.template element<int32_t>(i));
+        }
+        printf("]\n");
+      }
     );
 
     auto list_size_begin = thrust::make_transform_iterator(target_vector.begin(), [] __device__(list_device_view l) { return l.size(); });
