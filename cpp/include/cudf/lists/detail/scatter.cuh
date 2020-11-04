@@ -35,8 +35,7 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
   cudaStream_t stream
 )
 {
-  // auto ptr_lists_column_device_view = column_device_view::create(lists_column.parent(), stream);
-  // auto lists_col_d_v = cudf::detail::lists_column_device_view(*ptr_lists_column_device_view);
+  std::cout << "CALEB: list_vector_from_column(): lists_column_device_view address: " << reinterpret_cast<long>(&lists_col_d_v) << std::endl;
   auto n_rows = lists_col_d_v.size();
 
   auto vector = rmm::device_vector<cudf::list_device_view>(n_rows);
@@ -50,61 +49,16 @@ rmm::device_vector<cudf::list_device_view> list_vector_from_column(
       output = vector.data().get()
     ] __device__ (size_type idx)
     {
-      output[idx] = lists_col_d_v[idx];
+      printf("CALEB: list_vector_from_column() lambda: lists_column_device_view address: %" PRId64 "\n", reinterpret_cast<long>(&lists_col_d_v));
+      output[idx] = cudf::detail::get_list_row{}(lists_col_d_v, idx);
     }
-
   );
+
   return vector;
 }
 
 struct list_child_constructor
 {
-  // Workaround for not being able to use a lambda.
-  /*
-  template <typename T>
-  struct copy_child_column_elements
-  {
-    public:
-
-    copy_child_column_elements(
-      rmm::device_vector<cudf::list_device_view> const& list_vector,
-      cudf::column_view const& list_offsets,
-      cudf::mutable_column_view child_column)
-      : d_list_device_view(list_vector.data().get()),
-        d_offsets(list_offsets.template data<int32_t>()),
-        d_child_column(child_column.template data<T>())
-    {}
-
-    void __device__ operator()(size_type const& list_row_index) const 
-    {
-      printf("CALEB: %d\n", list_row_index);
-      auto start_offset = d_offsets[list_row_index];
-      auto list_device_view = d_list_device_view[list_row_index];
-      
-      // Copy each element in the list-row to its position in the child column.
-      // TODO: memcpy() instead?
-      thrust::for_each_n(
-        thrust::seq,
-        thrust::make_counting_iterator<size_type>(0),
-        list_device_view.size(),
-        [
-          start_offset, 
-          list_device_view, 
-          d_child_column = this->d_child_column] __device__ (auto list_element_idx)
-        {
-          d_child_column[start_offset + list_element_idx] = list_device_view.element<T>(list_element_idx);
-        }
-      );
-    }
-
-    private:
-
-      cudf::list_device_view const * d_list_device_view;
-      int32_t const* d_offsets;
-      T* d_child_column;
-  };
-  */
-
   template <typename T>
   std::enable_if_t<cudf::is_fixed_width<T>(), std::unique_ptr<column>> operator()(
     rmm::device_vector<cudf::list_device_view> const& list_vector, 
@@ -122,15 +76,6 @@ struct list_child_constructor
       stream,
       mr
     );
-
-    /*
-    thrust::for_each_n(
-      rmm::exec_policy(stream)->on(stream),
-      thrust::make_counting_iterator<size_type>(0),
-      num_child_rows,
-      copy_child_column_elements<T>{list_vector, list_offsets, child_column->mutable_view()}
-    );
-    */
 
     thrust::for_each_n(
       rmm::exec_policy(stream)->on(stream),
@@ -158,7 +103,6 @@ struct list_child_constructor
       }
     );
 
-    // return std::make_unique<cudf::column>(list_offsets); // TODO: Replace with constructed child column.
     return std::make_unique<cudf::column>(child_column->view()); // TODO: Replace with constructed child column.
   }
 
@@ -174,6 +118,25 @@ struct list_child_constructor
   }
 
 };
+
+void debug_print(rmm::device_vector<cudf::list_device_view> const& vector, std::string const& msg = "")
+{
+    std::cout << msg << " Vector size: " << vector.size() << std::endl;
+    thrust::for_each(
+      thrust::device,
+      vector.begin(),
+      vector.end(),
+      []__device__(auto list)
+      {
+        printf(" list(size:%" PRId32 ") (ptr==%" PRId64 ") [", list.size(), &list.get_column());
+        for (int i(0); i<list.size(); ++i)
+        {
+          printf("%" PRId32, list.template element<int32_t>(i));
+        }
+        printf("]\n");
+      }
+    );    
+}
 
 } // namespace;
 
@@ -213,18 +176,26 @@ std::unique_ptr<column> scatter(
 
     // TODO: Deep(er) checks that source and target have identical types.
 
+    std::cout << "\nSOURCE!!\n" << std::endl;
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
     auto source_device_view = column_device_view::create(source, stream);
     auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*source_device_view);
     auto source_vector = list_vector_from_column(source_lists_column_device_view, stream);
-    std::cout << "CALEB: Source vector size: " << source_vector.size() << std::endl;
 
+    debug_print(source_vector, "CALEB: Pre scatter Source vector.");
+
+    std::cout << "\nTARGET!!\n" << std::endl;
     auto target_lists_column_view = lists_column_view(target); // Checks that target is a list column.
     auto target_device_view = column_device_view::create(target, stream);
     auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*target_device_view);
     auto target_vector = list_vector_from_column(target_lists_column_device_view, stream);
-    std::cout << "CALEB: Target vector size: " << target_vector.size() << std::endl;
 
+    debug_print(target_vector, "CALEB: Pre scatter Target vector.");
+
+    debug_print(source_vector, "CALEB: Pre scatter Source vector (REDUX).");
+
+    std::cout << "\nCALEB: NOW SCATTERING! .....................\n" << std::endl;
+    
     // Scatter.
     thrust::scatter(
       rmm::exec_policy(stream)->on(stream),
@@ -234,22 +205,7 @@ std::unique_ptr<column> scatter(
       target_vector.begin()
     );
 
-    std::cout << "CALEB: Post scatter: Target vector size: " << target.size() << std::endl;
-    thrust::for_each(
-      rmm::exec_policy(stream)->on(stream),
-      // thrust::seq,
-      target_vector.begin(),
-      target_vector.end(),
-      []__device__(auto list)
-      {
-        printf(" list(size:%" PRId32 ") [", list.size());
-        for (int i(0); i<list.size(); ++i)
-        {
-          printf("%" PRId32, list.template element<int32_t>(i));
-        }
-        printf("]\n");
-      }
-    );
+    debug_print(target_vector, "CALEB: Post scatter Target vector.");
 
     auto list_size_begin = thrust::make_transform_iterator(target_vector.begin(), [] __device__(list_device_view l) { return l.size(); });
     auto offsets_column = cudf::strings::detail::make_offsets_child_column(
