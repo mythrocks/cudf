@@ -17,84 +17,9 @@
 
 #include <cuda_runtime.h>
 #include <cudf/types.hpp>
-#include <cudf/column/column_device_view.cuh>
-
-/**
- * @file list_view.cuh
- * @brief Class definition for cudf::list_view.
- */
+#include <cudf/lists/lists_column_device_view.cuh>
 
 namespace cudf {
-
-namespace detail {
-
-/**
- * @brief Given a column-device-view, an instance of this class provides a
- * wrapper on this compound column for list operations.
- * Analogous to list_column_view.
- */
-class lists_column_device_view {
-
- public:
-
-  CUDA_DEVICE_CALLABLE lists_column_device_view() 
-    : underlying(cudf::column_view{}, 0, 0) // TODO: This is a hack. Must track initialization state.
-  {}
-
-  ~lists_column_device_view()                               = default;
-  lists_column_device_view(lists_column_device_view const&) = default;
-  lists_column_device_view(lists_column_device_view&&)      = default;
-  lists_column_device_view& operator= (lists_column_device_view const&) = default;
-  lists_column_device_view& operator= (lists_column_device_view &&) = default;
-
-  lists_column_device_view(column_device_view const& underlying)
-    : underlying(underlying)
-  {
-  }
-
-  CUDA_HOST_DEVICE_CALLABLE cudf::size_type size() const
-  {
-    return underlying.size();
-  }
-
-  /**
-   * @brief Fetches the list row at the specified index.
-   * @param idx The index into the list column at which the list row
-   * is to be fetched
-   * @return list_device_view for the list row at the specified index.
-   */
-  // CUDA_DEVICE_CALLABLE cudf::list_device_view operator[](size_type idx) const
-  // {
-    // return cudf::list_device_view{*this, idx};
-  // }
-
-  /**
-   * @brief Fetches the offsets column of the underlying list column.
-   */
-  CUDA_DEVICE_CALLABLE column_device_view offsets() const { return underlying.child(0); }
-
-  /**
-   * @brief Fetches the child column of the underlying list column.
-   */
-  CUDA_DEVICE_CALLABLE column_device_view child() const { return underlying.child(1); }
-
-  /**
-   * @brief Indicates whether the list column is nullable.
-   */
-  CUDA_DEVICE_CALLABLE bool nullable() const { return underlying.nullable(); }
-
-  /**
-   * @brief Indicates whether the row (i.e. list) at the specified
-   * index is null.
-   */
-  CUDA_DEVICE_CALLABLE bool is_null(size_type idx) const { return underlying.is_null(idx); }
-
- private:
-
-  column_device_view underlying;
-};
-
-}  // namespace detail
 
 /**
  * @brief A non-owning, immutable view of device data that represents
@@ -168,7 +93,7 @@ class list_device_view {
 
   private:
 
-    lists_column_device_view lists_column; 
+    lists_column_device_view const& lists_column; 
     size_type _row_index{};  // Row index in the Lists column vector.
     size_type _size{};       // Number of elements in *this* list row.
 
@@ -214,26 +139,6 @@ CUDA_DEVICE_CALLABLE bool list_device_view::is_null(size_type idx) const
 CUDA_DEVICE_CALLABLE bool list_device_view::is_null() const
 {
   return lists_column.is_null(_row_index);
-}
-
-namespace detail {
-
-/**
- * @brief Functor to fetch list_device_view from lists_column_device_view.
- */
-class get_list_row
-{
-  public:
-
-    CUDA_DEVICE_CALLABLE cudf::list_device_view operator() (
-      lists_column_device_view const& col, 
-      size_type idx) const
-    {
-      return cudf::list_device_view{col, idx};
-    }
-
-};
-
 }
 
 }  // namespace cudf
