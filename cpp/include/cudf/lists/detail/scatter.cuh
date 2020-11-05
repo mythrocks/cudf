@@ -31,39 +31,33 @@ namespace {
 struct scattered_list_row
 {
 
+  enum label_t : bool {SOURCE, TARGET};
+
   using lists_column_device_view = cudf::detail::lists_column_device_view;
   using list_device_view = cudf::list_device_view;
 
   scattered_list_row() = default;
 
-  CUDA_DEVICE_CALLABLE scattered_list_row(bool is_from_scatter_src,
+  CUDA_DEVICE_CALLABLE scattered_list_row(label_t scatter_source_label,
                                           cudf::detail::lists_column_device_view const& lists_column,
                                           size_type const& row_index)
-    : _is_from_scatter_src{is_from_scatter_src},
+    : _label{scatter_source_label},
       _row_index{row_index}
   {
-    // TODO: Call list_device_view.size(), etc., instead of recomputing here.
-    release_assert(_row_index >= 0 && _row_index < lists_column.size() && "row_index out of bounds");
+    auto actual_list_row = list_device_view{lists_column, row_index};
+    _size = actual_list_row.size();
 
-    column_device_view const& offsets = lists_column.offsets();
-    release_assert(row_index < offsets.size() && "row_index should not have exceeded offset size");
-
-    _begin_offset = offsets.element<size_type>(row_index);
-    release_assert(_begin_offset >= 0 && _begin_offset < get_child().size() &&
-                  "begin_offset out of bounds.");
-    _size = offsets.element<size_type>(row_index + 1) - _begin_offset;
   }
 
   CUDA_DEVICE_CALLABLE size_type size() const { return _size; }
-  CUDA_DEVICE_CALLABLE bool is_from_scatter_source() const { return _is_from_scatter_src; }
+  CUDA_DEVICE_CALLABLE bool is_from_scatter_source() const { return _label == SOURCE; }
   CUDA_DEVICE_CALLABLE size_type row_index() const { return _row_index; }
 
   CUDA_DEVICE_CALLABLE list_device_view to_list_device_view(
     lists_column_device_view const& scatter_source,
-    lists_column_device_view const& scatter_target
-  ) const
+    lists_column_device_view const& scatter_target) const 
   {
-    return list_device_view(is_from_scatter_source()? scatter_source : scatter_target, _row_index);
+    return list_device_view(_label == SOURCE? scatter_source : scatter_target, _row_index);
   }
 
   private:
@@ -71,14 +65,13 @@ struct scattered_list_row
     // Note: Cannot store reference to list column, because of storage in device_vector.
     // Only keep track of whether this list row came from the source or target of scatter.
 
-    bool _is_from_scatter_src; // Whether this list row came from the scatter source or target.
-    size_type _row_index{};    // Row index in the Lists column.
-    size_type _size{};         // Number of elements in *this* list row.
-    size_type _begin_offset{}; // Offset at which this list row begins in the Lists column.
+    label_t _label {SOURCE}; // Whether this list row came from the scatter source or target. 
+    size_type _row_index{};         // Row index in the Lists column.
+    size_type _size{};              // Number of elements in *this* list row.
 };
 
 rmm::device_vector<scattered_list_row> list_vector_from_column(
-  bool is_scatter_source,
+  scattered_list_row::label_t label,
   cudf::detail::lists_column_device_view const& lists_column,
   cudaStream_t stream
 )
@@ -92,12 +85,12 @@ rmm::device_vector<scattered_list_row> list_vector_from_column(
     thrust::make_counting_iterator<size_type>(0),
     n_rows,
     [
-      is_scatter_source,
+      label,
       lists_column,
       output = vector.data().get()
     ] __device__ (size_type row_index)
     {
-      output[row_index] = scattered_list_row{is_scatter_source, lists_column, row_index};
+      output[row_index] = scattered_list_row{label, lists_column, row_index};
     }
   );
 
@@ -168,30 +161,6 @@ struct list_child_constructor
     );
 
     /*
-    thrust::for_each_n(
-      rmm::exec_policy(stream)->on(stream),
-      thrust::make_counting_iterator<size_type>(0),
-      num_child_rows,
-      [
-        d_list_device_view = list_vector.data().get(),
-        d_offsets          = list_offsets.template data<int32_t>(),
-        d_child_column     = child_column->mutable_view().data<T>()
-      ] __device__ (cudf::size_type row_index)
-      {
-        auto start_offset = d_offsets[row_index];
-        // auto end_offset   = d_offsets[row_index + 1];
-        auto list_device_view = d_list_device_view[row_index];
-
-        thrust::for_each_n(
-          thrust::seq,
-          thrust::make_counting_iterator<size_type>(0),
-          list_device_view.size(),
-          [start_offset, list_device_view, d_child_column] __device__ (auto list_element_idx)
-          {
-            d_child_column[start_offset + list_element_idx] = list_device_view.element<T>(list_element_idx);
-          }
-        );
-      }
     );
 
     return std::make_unique<cudf::column>(child_column->view()); // TODO: Replace with constructed child column.
@@ -224,7 +193,6 @@ void debug_print(rmm::device_vector<scattered_list_row> const& vector, std::stri
       []__device__(auto list)
       {
         /*
-        printf(" list(size:%" PRId32 ") (ptr==%" PRId64 ") [", list.size(), &list.get_column());
         for (int i(0); i<list.size(); ++i)
         {
           printf("%" PRId32, list.template element<int32_t>(i));
@@ -268,31 +236,27 @@ std::unique_ptr<column> scatter(
   cudaStream_t stream                 = 0
   )
 {
-    std::cout << "CALEB: Inside scatter_list()!" << std::endl;
-
     auto child_column_type = lists_column_view(target).child().type();
 
     // TODO: Deep(er) checks that source and target have identical types.
 
-    std::cout << "\nSOURCE!!\n" << std::endl;
+    // std::cout << "\nSOURCE!!\n" << std::endl;
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
     auto source_device_view = column_device_view::create(source, stream);
     auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*source_device_view);
-    auto source_vector = list_vector_from_column(true, source_lists_column_device_view, stream);
+    auto source_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::SOURCE, source_lists_column_device_view, stream);
 
-    debug_print(source_vector, "CALEB: Pre scatter Source vector.");
+    // debug_print(source_vector, "CALEB: Pre scatter Source vector.");
 
-    std::cout << "\nTARGET!!\n" << std::endl;
+    // std::cout << "\nTARGET!!\n" << std::endl;
     auto target_lists_column_view = lists_column_view(target); // Checks that target is a list column.
     auto target_device_view = column_device_view::create(target, stream);
     auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*target_device_view);
-    auto target_vector = list_vector_from_column(false, target_lists_column_device_view, stream);
+    auto target_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::TARGET, target_lists_column_device_view, stream);
 
-    debug_print(target_vector, "CALEB: Pre scatter Target vector.");
+    // debug_print(target_vector, "CALEB: Pre scatter Target vector.");
 
-    debug_print(source_vector, "CALEB: Pre scatter Source vector (REDUX).");
-
-    std::cout << "\nCALEB: NOW SCATTERING! .....................\n" << std::endl;
+    // std::cout << "\nCALEB: NOW SCATTERING! .....................\n" << std::endl;
     
     // Scatter.
     thrust::scatter(
@@ -302,8 +266,6 @@ std::unique_ptr<column> scatter(
       scatter_map_begin,
       target_vector.begin()
     );
-
-    debug_print(target_vector, "CALEB: Post scatter Target vector.");
 
     auto list_size_begin = thrust::make_transform_iterator(target_vector.begin(), [] __device__(scattered_list_row l) { return l.size(); });
     auto offsets_column = cudf::strings::detail::make_offsets_child_column(
