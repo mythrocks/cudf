@@ -20,7 +20,10 @@
 #include <cuda_runtime.h>
 #include <cudf/types.hpp>
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/lists/list_device_view.cuh>
+#include <cudf/null_mask.hpp>
 
 namespace cudf {
 namespace lists {
@@ -170,7 +173,26 @@ struct list_child_constructor
   }
 
   template <typename T> 
-  std::enable_if_t<!cudf::is_fixed_width<T>(), std::unique_ptr<column>> operator()(
+  std::enable_if_t<std::is_same<T, string_view>::value, std::unique_ptr<column>> operator()(
+    rmm::device_vector<scattered_list_row> const& list_vector, 
+    cudf::column_view const& list_offsets,
+    cudf::detail::lists_column_device_view const& source_list,
+    cudf::detail::lists_column_device_view const& target_list,
+    rmm::mr::device_memory_resource* mr,
+    cudaStream_t stream) const
+  {
+    CUDF_FAIL("string_view list_child_constructor UNIMPLEMENTED!");
+  }
+
+  template <typename T>
+  struct is_unsupported_child_type
+  {
+    static const bool value = !cudf::is_fixed_width<T>()
+                           && !std::is_same<T, string_view>::value;
+  };
+
+  template <typename T> 
+  std::enable_if_t<is_unsupported_child_type<T>::value, std::unique_ptr<column>> operator()(
     rmm::device_vector<scattered_list_row> const& list_vector, 
     cudf::column_view const& list_offsets,
     cudf::detail::lists_column_device_view const& source_list,
@@ -236,6 +258,13 @@ std::unique_ptr<column> scatter(
   cudaStream_t stream                 = 0
   )
 {
+    auto num_rows = target.size();
+
+    if (num_rows == 0)
+    {
+      return cudf::empty_like(target);
+    }
+
     auto child_column_type = lists_column_view(target).child().type();
 
     // TODO: Deep(er) checks that source and target have identical types.
@@ -275,7 +304,7 @@ std::unique_ptr<column> scatter(
       stream
     );
 
-    return cudf::type_dispatcher( // TODO: FIXME: This only fetches the child column. Must construct full list column.
+    auto child_column = cudf::type_dispatcher( 
       child_column_type, 
       list_child_constructor{},
       target_vector,
@@ -284,6 +313,21 @@ std::unique_ptr<column> scatter(
       target_lists_column_device_view,
       mr,
       stream
+    );
+
+    rmm::device_buffer null_mask{0, stream, mr};
+    if (target.has_nulls()) {
+      null_mask = copy_bitmask(target, stream, mr);
+    }
+
+    return cudf::make_lists_column(
+      num_rows,
+      std::move(offsets_column),
+      std::move(child_column),
+      cudf::UNKNOWN_NULL_COUNT,
+      std::move(null_mask),
+      stream,
+      mr
     );
 }
 
