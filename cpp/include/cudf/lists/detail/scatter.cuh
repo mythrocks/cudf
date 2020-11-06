@@ -184,6 +184,8 @@ struct list_child_constructor
                              cudaMemcpyDeviceToHost, 
                              stream));
 
+    std::cout << "CALEB: Num rows: " << num_child_rows << std::endl;
+
     auto string_views = rmm::device_vector<string_view>(num_child_rows);
 
     auto populate_string_views = [
@@ -196,30 +198,34 @@ struct list_child_constructor
 
       auto scattered_list_row    = d_scattered_lists[row_index];
       auto actual_list_row       = scattered_list_row.to_list_device_view(source_lists, target_lists);
-      auto child_strings_column  = actual_list_row.get_column().child();
+      auto lists_column          = actual_list_row.get_column();
+      auto lists_offsets_column  = lists_column.offsets();
+      auto child_strings_column  = lists_column.child();
       auto string_offsets_column = child_strings_column.child(cudf::strings_column_view::offsets_column_index);
       auto string_chars_column   = child_strings_column.child(cudf::strings_column_view::chars_column_index);
 
-      auto destination_start_offset = d_list_offsets[row_index];
+      auto output_start_offset = d_list_offsets[row_index]; // Offset in `string_views` at which string_views are 
+                                                            // to be written for this list row_index.
+      auto input_list_start = lists_offsets_column.template element<int32_t>(scattered_list_row.row_index());
 
-      // TODO: Construct string_view objects pointing into child column of source/target.
       thrust::for_each_n(
         thrust::seq,
         thrust::make_counting_iterator<size_type>(0),
         actual_list_row.size(),
         [
-          destination_start_offset,
+          output_start_offset,
           d_string_views,
+          input_list_start,
           d_string_offsets = string_offsets_column.template data<int32_t>(),
           d_string_chars   = string_chars_column.template data<char>()
         ] __device__ (auto const& string_idx)
         {
-          // destination_start_offset == Offset into child string column, 
-          // where the current list row begins.
-          auto string_offset     = destination_start_offset + string_idx;
-          auto string_start_idx  = d_string_offsets[string_offset];
-          auto string_end_idx    = d_string_offsets[string_offset+1];
-          d_string_views[destination_start_offset + string_idx] = string_view{d_string_chars + string_start_idx, string_end_idx - string_start_idx};
+          // auto string_offset     = output_start_offset + string_idx;
+          auto string_start_idx  = d_string_offsets[input_list_start + string_idx];
+          auto string_end_idx    = d_string_offsets[input_list_start + string_idx + 1];
+
+          d_string_views[output_start_offset + string_idx] = 
+            string_view{d_string_chars + string_start_idx, string_end_idx - string_start_idx};
         }
       );
     };
