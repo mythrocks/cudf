@@ -24,6 +24,7 @@
 #include <cudf/copying.hpp>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/null_mask.hpp>
+#include <cudf/strings/strings_column_view.hpp>
 
 namespace cudf {
 namespace lists {
@@ -123,7 +124,7 @@ struct list_child_constructor
     auto child_column = cudf::make_fixed_width_column(
       cudf::data_type{cudf::type_to_id<T>()},
       num_child_rows,
-      cudf::mask_state::UNALLOCATED,
+      cudf::mask_state::UNALLOCATED, // TODO: Figure out child column null mask.
       stream,
       mr
     );
@@ -163,12 +164,6 @@ struct list_child_constructor
       copy_child_values_for_list_index
     );
 
-    /*
-    );
-
-    return std::make_unique<cudf::column>(child_column->view()); // TODO: Replace with constructed child column.
-    */
-    // return std::make_unique<column>(list_offsets);
     return std::make_unique<column>(child_column->view());
   }
 
@@ -176,12 +171,76 @@ struct list_child_constructor
   std::enable_if_t<std::is_same<T, string_view>::value, std::unique_ptr<column>> operator()(
     rmm::device_vector<scattered_list_row> const& list_vector, 
     cudf::column_view const& list_offsets,
-    cudf::detail::lists_column_device_view const& source_list,
-    cudf::detail::lists_column_device_view const& target_list,
+    cudf::detail::lists_column_device_view const& source_lists,
+    cudf::detail::lists_column_device_view const& target_lists,
     rmm::mr::device_memory_resource* mr,
     cudaStream_t stream) const
   {
-    CUDF_FAIL("string_view list_child_constructor UNIMPLEMENTED!");
+    // Number of rows in child-column == last offset value.
+    int32_t num_child_rows{};
+    CUDA_TRY(cudaMemcpyAsync(&num_child_rows, 
+                             list_offsets.data<int32_t>()+list_offsets.size()-1, 
+                             sizeof(int32_t), 
+                             cudaMemcpyDeviceToHost, 
+                             stream));
+
+    auto string_views = rmm::device_vector<string_view>(num_child_rows);
+
+    auto populate_string_views = [
+      d_scattered_lists = list_vector.data().get(), // scattered_list_row*
+      d_list_offsets    = list_offsets.template data<int32_t>(),
+      d_string_views    = string_views.data().get(),
+      source_lists,
+      target_lists
+    ] __device__ (auto const& row_index) {
+
+      auto scattered_list_row    = d_scattered_lists[row_index];
+      auto actual_list_row       = scattered_list_row.to_list_device_view(source_lists, target_lists);
+      auto child_strings_column  = actual_list_row.get_column().child();
+      auto string_offsets_column = child_strings_column.child(cudf::strings_column_view::offsets_column_index);
+      auto string_chars_column   = child_strings_column.child(cudf::strings_column_view::chars_column_index);
+
+      auto destination_start_offset = d_list_offsets[row_index];
+
+      // TODO: Construct string_view objects pointing into child column of source/target.
+      thrust::for_each_n(
+        thrust::seq,
+        thrust::make_counting_iterator<size_type>(0),
+        actual_list_row.size(),
+        [
+          destination_start_offset,
+          d_string_views,
+          d_string_offsets = string_offsets_column.template data<int32_t>(),
+          d_string_chars   = string_chars_column.template data<char>()
+        ] __device__ (auto const& string_idx)
+        {
+          // destination_start_offset == Offset into child string column, 
+          // where the current list row begins.
+          auto string_offset     = destination_start_offset + string_idx;
+          auto string_start_idx  = d_string_offsets[string_offset];
+          auto string_end_idx    = d_string_offsets[string_offset+1];
+          d_string_views[destination_start_offset + string_idx] = string_view{d_string_chars + string_start_idx, string_end_idx - string_start_idx};
+        }
+      );
+    };
+
+    thrust::for_each_n(
+      rmm::exec_policy(stream)->on(stream),
+      thrust::make_counting_iterator<size_type>(0),
+      list_vector.size(),
+      populate_string_views
+    );
+
+    // string_views should now have been populated with source and target references.
+
+    auto string_offsets = cudf::strings::detail::child_offsets_from_string_vector(string_views, mr, stream);
+    auto string_chars   = cudf::strings::detail::child_chars_from_string_vector(string_views, string_offsets->view().data<int32_t>(), 0, mr, stream);
+
+    return cudf::make_strings_column(num_child_rows,
+                                     std::move(string_offsets),
+                                     std::move(string_chars),
+                                     cudf::UNKNOWN_NULL_COUNT,
+                                     {}, stream, mr);
   }
 
   template <typename T>
@@ -269,24 +328,16 @@ std::unique_ptr<column> scatter(
 
     // TODO: Deep(er) checks that source and target have identical types.
 
-    // std::cout << "\nSOURCE!!\n" << std::endl;
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
     auto source_device_view = column_device_view::create(source, stream);
     auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*source_device_view);
     auto source_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::SOURCE, source_lists_column_device_view, stream);
 
-    // debug_print(source_vector, "CALEB: Pre scatter Source vector.");
-
-    // std::cout << "\nTARGET!!\n" << std::endl;
     auto target_lists_column_view = lists_column_view(target); // Checks that target is a list column.
     auto target_device_view = column_device_view::create(target, stream);
     auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*target_device_view);
     auto target_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::TARGET, target_lists_column_device_view, stream);
 
-    // debug_print(target_vector, "CALEB: Pre scatter Target vector.");
-
-    // std::cout << "\nCALEB: NOW SCATTERING! .....................\n" << std::endl;
-    
     // Scatter.
     thrust::scatter(
       rmm::exec_policy(stream)->on(stream),
