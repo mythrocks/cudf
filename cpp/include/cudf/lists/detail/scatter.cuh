@@ -119,6 +119,7 @@ struct list_child_constructor
                              sizeof(int32_t), 
                              cudaMemcpyDeviceToHost, 
                              stream));
+    CUDA_TRY(cudaStreamSynchronize(stream));
 
     // Init child-column.
     auto child_column = cudf::make_fixed_width_column(
@@ -183,6 +184,7 @@ struct list_child_constructor
                              sizeof(int32_t), 
                              cudaMemcpyDeviceToHost, 
                              stream));
+    CUDA_TRY(cudaStreamSynchronize(stream));
 
     std::cout << "CALEB: Num rows: " << num_child_rows << std::endl;
 
