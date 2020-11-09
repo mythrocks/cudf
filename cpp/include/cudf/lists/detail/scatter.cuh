@@ -186,8 +186,6 @@ struct list_child_constructor
                              stream));
     CUDA_TRY(cudaStreamSynchronize(stream));
 
-    std::cout << "CALEB: Num rows: " << num_child_rows << std::endl;
-
     auto string_views = rmm::device_vector<string_view>(num_child_rows);
 
     auto populate_string_views = [
@@ -252,14 +250,7 @@ struct list_child_constructor
   }
 
   template <typename T>
-  struct is_unsupported_child_type
-  {
-    static const bool value = !cudf::is_fixed_width<T>()
-                           && !std::is_same<T, string_view>::value;
-  };
-
-  template <typename T> 
-  std::enable_if_t<is_unsupported_child_type<T>::value, std::unique_ptr<column>> operator()(
+  std::enable_if_t<std::is_same<T, list_view>::value, std::unique_ptr<column>> operator() (
     rmm::device_vector<scattered_list_row> const& list_vector, 
     cudf::column_view const& list_offsets,
     cudf::detail::lists_column_device_view const& source_list,
@@ -267,7 +258,26 @@ struct list_child_constructor
     rmm::mr::device_memory_resource* mr,
     cudaStream_t stream) const
   {
-    std::cout << "CALEB: list_child_constructor<" << typeid(T).name() << std::endl;
+    CUDF_FAIL("list_view list_child_constructor not implemented yet!");
+  }
+
+  template <typename T>
+  struct is_supported_child_type
+  {
+    static const bool value = cudf::is_fixed_width<T>()
+                           || std::is_same<T, string_view>::value
+                           || std::is_same<T, list_view>::value;
+  };
+
+  template <typename T> 
+  std::enable_if_t<!is_supported_child_type<T>::value, std::unique_ptr<column>> operator()(
+    rmm::device_vector<scattered_list_row> const& list_vector, 
+    cudf::column_view const& list_offsets,
+    cudf::detail::lists_column_device_view const& source_list,
+    cudf::detail::lists_column_device_view const& target_list,
+    rmm::mr::device_memory_resource* mr,
+    cudaStream_t stream) const
+  {
     CUDF_FAIL("list_child_constructor unsupported!");
   }
 };
