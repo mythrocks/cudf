@@ -32,6 +32,8 @@ namespace detail {
 
 namespace {
 
+// TODO: Rename to `unbound_child_view`.
+//       Carries only positional information, unbound to list_view.
 struct scattered_list_row
 {
 
@@ -50,13 +52,22 @@ struct scattered_list_row
   {
     auto actual_list_row = list_device_view{lists_column, row_index};
     _size = actual_list_row.size();
-
   }
 
+  CUDA_DEVICE_CALLABLE scattered_list_row(label_t scatter_source_label,
+                                          size_type const& row_index,
+                                          size_type const& size)
+    : _label{scatter_source_label},
+      _row_index{row_index},
+      _size{size}
+  {}
+
   CUDA_DEVICE_CALLABLE size_type size() const { return _size; }
-  CUDA_DEVICE_CALLABLE bool is_from_scatter_source() const { return _label == SOURCE; }
+  CUDA_DEVICE_CALLABLE label_t label() const { return _label; }
+  CUDA_DEVICE_CALLABLE bool is_from_scatter_source() const { return label() == SOURCE; }
   CUDA_DEVICE_CALLABLE size_type row_index() const { return _row_index; }
 
+  // TODO: Rename to `bind_to_lists_column`?
   CUDA_DEVICE_CALLABLE list_device_view to_list_device_view(
     lists_column_device_view const& scatter_source,
     lists_column_device_view const& scatter_target) const 
@@ -168,6 +179,29 @@ struct list_child_constructor
     return std::make_unique<column>(child_column->view());
   }
 
+  /**
+   * @brief Utility function to fetch the number of rows in a lists column's
+   *        child column, given its offsets column.
+   *        (This is simply the last value in the offsets column.)
+   * 
+   * @param list_offsets Offsets child of a lists column
+   * @param stream The cuda-stream to synchronize on, when reading from device memory
+   * @return int32_t The last element in the list_offsets column, indicating
+   *         the number of rows in the lists-column's child.
+   */
+  static int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStream_t stream)
+  {
+    // Number of rows in child-column == last offset value.
+    int32_t num_child_rows{};
+    CUDA_TRY(cudaMemcpyAsync(&num_child_rows, 
+                             list_offsets.data<int32_t>()+list_offsets.size()-1, 
+                             sizeof(int32_t), 
+                             cudaMemcpyDeviceToHost, 
+                             stream));
+    CUDA_TRY(cudaStreamSynchronize(stream));  
+    return num_child_rows;
+}
+
   template <typename T> 
   std::enable_if_t<std::is_same<T, string_view>::value, std::unique_ptr<column>> operator()(
     rmm::device_vector<scattered_list_row> const& list_vector, 
@@ -177,14 +211,7 @@ struct list_child_constructor
     rmm::mr::device_memory_resource* mr,
     cudaStream_t stream) const
   {
-    // Number of rows in child-column == last offset value.
-    int32_t num_child_rows{};
-    CUDA_TRY(cudaMemcpyAsync(&num_child_rows, 
-                             list_offsets.data<int32_t>()+list_offsets.size()-1, 
-                             sizeof(int32_t), 
-                             cudaMemcpyDeviceToHost, 
-                             stream));
-    CUDA_TRY(cudaStreamSynchronize(stream));
+    int32_t num_child_rows{get_num_child_rows(list_offsets, stream)};
 
     auto string_views = rmm::device_vector<string_view>(num_child_rows);
 
@@ -250,15 +277,88 @@ struct list_child_constructor
   }
 
   template <typename T>
-  std::enable_if_t<std::is_same<T, list_view>::value, std::unique_ptr<column>> operator() (
+  std::enable_if_t<std::is_same<T, list_view>::value, 
+                   std::unique_ptr<column>> 
+  operator() (
     rmm::device_vector<scattered_list_row> const& list_vector, 
     cudf::column_view const& list_offsets,
-    cudf::detail::lists_column_device_view const& source_list,
-    cudf::detail::lists_column_device_view const& target_list,
+    cudf::detail::lists_column_device_view const& source_lists,
+    cudf::detail::lists_column_device_view const& target_lists,
     rmm::mr::device_memory_resource* mr,
     cudaStream_t stream) const
   {
-    CUDF_FAIL("list_view list_child_constructor not implemented yet!");
+    auto num_child_rows = get_num_child_rows(list_offsets, stream);
+
+    auto child_list_views = rmm::device_vector<scattered_list_row>(num_child_rows);
+
+    // Function to convert from parent list_device_view instances to child list_device_views.
+    // For instance, if a parent list_device_view has 3 elements, it should have 3 corresponding
+    // child list_device_view instances.
+    auto populate_child_list_views = [
+      d_scattered_lists  = list_vector.data().get(),
+      d_list_offsets     = list_offsets.template data<int32_t>(),
+      d_child_list_views = child_list_views.data().get(),
+      source_lists,
+      target_lists
+    ] __device__ (auto const& row_index) {
+
+      auto scattered_row        = d_scattered_lists[row_index];
+      auto label                = scattered_row.label();
+      auto bound_list_row       = scattered_row.to_list_device_view(source_lists, target_lists);
+      auto lists_offsets_column = bound_list_row.get_column().offsets();
+
+      auto child_column         = bound_list_row.get_column().child();
+      auto child_offsets        = child_column.child(cudf::lists_column_view::offsets_column_index);
+      // TODO: Remove: auto child_data           = child_column.child(cudf::lists_column_view::child_column_index);
+
+      // For lists row at row_index,
+      //   1. Number of entries in child_list_views == bound_list_row.size().
+      //   2. Offset of the first child list_view   == d_list_offsets[row_index].
+      auto output_start_offset  = d_list_offsets[row_index];
+      auto input_list_start     = lists_offsets_column.template element<int32_t>(scattered_row.row_index());
+
+      thrust::for_each_n(
+        thrust::seq,
+        thrust::make_counting_iterator<size_type>(0),
+        bound_list_row.size(),
+        [
+          input_list_start,
+          output_start_offset,
+          label,
+          d_child_list_views,
+          d_child_offsets = child_offsets.template data<int32_t>()
+        ] __device__ (auto const& child_list_index)
+        {
+          auto child_start_idx = d_child_offsets[input_list_start + child_list_index];
+          auto child_end_idx   = d_child_offsets[input_list_start + child_list_index + 1];
+
+          d_child_list_views[output_start_offset + child_list_index] = 
+            scattered_list_row{label, child_start_idx, child_end_idx - child_start_idx};
+        }
+      );
+    };
+
+    thrust::for_each_n(
+      rmm::exec_policy(stream)->on(stream),
+      thrust::make_counting_iterator<size_type>(0),
+      list_vector.size(),
+      populate_child_list_views
+    );
+
+    // child_list_views should now have been populated, with source and target references.
+
+    // TODO: Construct child column from child_list_views. For the moment, return child offsets.
+    auto begin = thrust::make_transform_iterator(
+      child_list_views.begin(), 
+      [] __device__ (auto const& row) { return row.size(); }
+    );
+
+    return cudf::strings::detail::make_offsets_child_column(
+      begin,
+      begin + child_list_views.size(),
+      mr,
+      stream
+    );
   }
 
   template <typename T>

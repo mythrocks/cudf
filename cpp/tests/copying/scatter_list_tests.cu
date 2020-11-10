@@ -100,6 +100,32 @@ TEST_F(ScatterListsTest, ListsOfStrings)
     print(ret->get_column(0));
 }
 
+TEST_F(ScatterListsTest, ListsOfLists)
+{
+    using namespace cudf::test;
+
+    auto src_list_column = lists_column_wrapper<int32_t> {
+        { {1,1,1,1}, {2,2,2,2} },
+        { {3,3,3,3}, {4,4,4,4} }
+    };
+
+    auto target_list_column = lists_column_wrapper<int32_t> {
+        { {9,9}, {8,8}, {7,7} },
+        { {6,6}, {}, {4,4} },
+        { {3,3}, {2,2}, {1,1} }
+    };
+
+    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+
+    auto ret = cudf::scatter(
+        cudf::table_view({src_list_column}),
+        scatter_map,
+        cudf::table_view({target_list_column})
+    );
+
+    print(ret->get_column(0));
+}
+
 TEST_F(ScatterListsTest, TestScatter)
 {
     using namespace thrust;
