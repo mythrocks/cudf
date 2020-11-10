@@ -309,7 +309,6 @@ struct list_child_constructor
 
       auto child_column         = bound_list_row.get_column().child();
       auto child_offsets        = child_column.child(cudf::lists_column_view::offsets_column_index);
-      // TODO: Remove: auto child_data           = child_column.child(cudf::lists_column_view::child_column_index);
 
       // For lists row at row_index,
       //   1. Number of entries in child_list_views == bound_list_row.size().
@@ -347,11 +346,12 @@ struct list_child_constructor
 
     // child_list_views should now have been populated, with source and target references.
 
-    // TODO: Construct child column from child_list_views. For the moment, return child offsets.
     auto begin = thrust::make_transform_iterator(
       child_list_views.begin(), 
       [] __device__ (auto const& row) { return row.size(); }
     );
+
+    // TODO: Implement recursion with type dispatch. Placeholder follows:
 
     return cudf::strings::detail::make_offsets_child_column(
       begin,
@@ -359,6 +359,27 @@ struct list_child_constructor
       mr,
       stream
     );
+
+    /*
+    auto child_offsets = cudf::strings::detail::make_offsets_child_column(
+      begin,
+      begin + child_list_views.size(),
+      mr,
+      stream
+    );
+
+    // TODO: Oh, so close! column_device_view::child() is __device__ only.
+    return cudf::type_dispatcher(
+      source_lists.child().type(),
+      list_child_constructor{},
+      child_list_views,
+      child_offsets->view(),
+      cudf::detail::lists_column_device_view(source_lists.child()),
+      cudf::detail::lists_column_device_view(target_lists.child()),
+      mr,
+      stream
+    );
+    */
   }
 
   template <typename T>
