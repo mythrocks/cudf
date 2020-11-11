@@ -44,6 +44,10 @@ struct scattered_list_row
   using list_device_view = cudf::list_device_view;
 
   scattered_list_row() = default;
+  scattered_list_row(scattered_list_row const&) = default;
+  scattered_list_row(scattered_list_row &&) = default;
+  scattered_list_row& operator = (scattered_list_row const&) = default;
+  scattered_list_row& operator = (scattered_list_row &&) = default;
 
   CUDA_DEVICE_CALLABLE scattered_list_row(label_t scatter_source_label,
                                           cudf::detail::lists_column_device_view const& lists_column,
@@ -136,6 +140,41 @@ static int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStr
   return num_child_rows;
 }
 
+void print(std::string const& msg, column_view const& col, cudaStream_t stream)
+{
+  if (col.type().id() != type_id::INT32)
+  {
+    std::cout << "[Cannot print non-INT32 column.]" << std::endl;
+    return;
+  }
+
+  std::cout << msg << " = [";
+  thrust::for_each_n(
+    rmm::exec_policy(stream)->on(stream),
+    thrust::make_counting_iterator<size_type>(0),
+    col.size(),
+    [c = col.template data<int32_t>()]__device__(auto const& i) {
+      printf("%d,", c[i]);
+    }
+  );
+  std::cout << "]" << std::endl;
+}
+
+void print(std::string const& msg, rmm::device_vector<scattered_list_row> const& scatter, cudaStream_t stream)
+{
+  std::cout << msg << " == [";
+
+  thrust::for_each_n(
+    rmm::exec_policy(stream)->on(stream),
+    thrust::make_counting_iterator<size_type>(0),
+    scatter.size(),
+    [s = scatter.data().get()] __device__ (auto const& i) {
+      auto si = s[i];
+      printf("%s[%d](%d), ", (si.label() == scattered_list_row::SOURCE? "S":"T"), si.row_index(), si.size());
+    }
+  );
+  std::cout << "]" << std::endl;
+}
 
 struct list_child_constructor
 {
@@ -156,6 +195,15 @@ struct list_child_constructor
 
     // Number of rows in child-column == last offset value.
     int32_t num_child_rows{get_num_child_rows(list_offsets, stream)};
+
+    std::cout << "Expected number of child rows: " << num_child_rows << std::endl;
+
+    print("list_offsets ", list_offsets, stream);
+    print("source_lists.child() ", source_lists_column_view.child(), stream);
+    print("source_lists.offsets() ", source_lists_column_view.offsets(), stream);
+    print("target_lists.child() ", target_lists_column_view.child(), stream);
+    print("target_lists.offsets() ", target_lists_column_view.offsets(), stream);
+    print("scatter_rows ", list_vector, stream);
 
     std::cout << "CALEB: list_child_constructor<int> 1" << std::endl;
     // Init child-column.
@@ -178,8 +226,22 @@ struct list_child_constructor
       target_lists
     ] __device__ (auto const& row_index) {
 
-      auto scattered_list_row = d_scattered_lists[row_index];
-      auto actual_list_row    = scattered_list_row.to_list_device_view(source_lists, target_lists);
+      auto unbound_list_row   = d_scattered_lists[row_index];
+      auto actual_list_row    = unbound_list_row.to_list_device_view(source_lists, target_lists);
+      auto const& bound_column= (unbound_list_row.label() == scattered_list_row::SOURCE? source_lists : target_lists);
+      auto list_begin_offset  = bound_column.offsets().element<size_type>(unbound_list_row.row_index());
+      auto list_end_offset    = bound_column.offsets().element<size_type>(unbound_list_row.row_index()+1);
+
+      printf("%d: Unbound == %s[%d](%d), Bound size == %d, calc_begin==%d, calc_end=%d, calc_size=%d\n", 
+             row_index, 
+             (unbound_list_row.label() == scattered_list_row::SOURCE? "S":"T"), 
+             unbound_list_row.row_index(),
+             unbound_list_row.size(),
+             actual_list_row.size(),
+             list_begin_offset,
+             list_end_offset,
+             list_end_offset-list_begin_offset
+      );
       
       // Copy all elements in this list row, to "appropriate" offset in child-column.
       auto destination_start_offset = d_offsets[row_index];
@@ -205,6 +267,7 @@ struct list_child_constructor
     );
 
     std::cout << "CALEB: list_child_constructor<int> 4" << std::endl;
+    print("Final int column: ", child_column->view(), stream);
     return std::make_unique<column>(child_column->view());
   }
 
@@ -348,7 +411,7 @@ struct list_child_constructor
           auto child_end_idx   = d_child_offsets[input_list_start + child_list_index + 1];
 
           d_child_list_views[output_start_offset + child_list_index] = 
-            scattered_list_row{label, child_start_idx, child_end_idx - child_start_idx};
+            scattered_list_row{label, input_list_start + child_list_index, child_end_idx - child_start_idx};
         }
       );
     };
@@ -387,7 +450,6 @@ struct list_child_constructor
 
     std::cout << "CALEB: Building child column of type:  " <<  static_cast<int>(source_lists_column_view.child().child(1).type().id()) << std::endl;
 
-    /*
     auto child_column = cudf::type_dispatcher(
       source_lists_column_view.child().child(1).type(),
       list_child_constructor{},
@@ -398,7 +460,6 @@ struct list_child_constructor
       mr,
       stream
     );
-    */
 
     std::cout << "CALEB: Built child column." << std::endl;
 
