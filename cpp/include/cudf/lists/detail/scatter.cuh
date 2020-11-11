@@ -187,7 +187,6 @@ struct list_child_constructor
     rmm::mr::device_memory_resource* mr,
     cudaStream_t stream) const
   {
-    std::cout << "CALEB: list_child_constructor<int> 0" << std::endl;
     auto source_column_device_view = column_device_view::create(source_lists_column_view.parent(), stream);
     auto target_column_device_view = column_device_view::create(target_lists_column_view.parent(), stream);
     auto source_lists = cudf::detail::lists_column_device_view(*source_column_device_view);
@@ -196,8 +195,6 @@ struct list_child_constructor
     // Number of rows in child-column == last offset value.
     int32_t num_child_rows{get_num_child_rows(list_offsets, stream)};
 
-    std::cout << "Expected number of child rows: " << num_child_rows << std::endl;
-
     print("list_offsets ", list_offsets, stream);
     print("source_lists.child() ", source_lists_column_view.child(), stream);
     print("source_lists.offsets() ", source_lists_column_view.offsets(), stream);
@@ -205,7 +202,6 @@ struct list_child_constructor
     print("target_lists.offsets() ", target_lists_column_view.offsets(), stream);
     print("scatter_rows ", list_vector, stream);
 
-    std::cout << "CALEB: list_child_constructor<int> 1" << std::endl;
     // Init child-column.
     auto child_column = cudf::make_fixed_width_column(
       cudf::data_type{cudf::type_to_id<T>()},
@@ -215,7 +211,6 @@ struct list_child_constructor
       mr
     );
 
-    std::cout << "CALEB: list_child_constructor<int> 2" << std::endl;
     // Function to copy child-values for specified index of scattered_list_row
     // to the child column.
     auto copy_child_values_for_list_index = [
@@ -256,7 +251,6 @@ struct list_child_constructor
         }
       );
     };
-    std::cout << "CALEB: list_child_constructor<int> 3" << std::endl;
 
     // For each list-row, copy underlying elements to the child column.
     thrust::for_each_n(
@@ -266,13 +260,13 @@ struct list_child_constructor
       copy_child_values_for_list_index
     );
 
-    std::cout << "CALEB: list_child_constructor<int> 4" << std::endl;
-    print("Final int column: ", child_column->view(), stream);
     return std::make_unique<column>(child_column->view());
   }
 
   template <typename T> 
-  std::enable_if_t<std::is_same<T, string_view>::value, std::unique_ptr<column>> operator()(
+  std::enable_if_t<std::is_same<T, string_view>::value, 
+                   std::unique_ptr<column>> 
+  operator()(
     rmm::device_vector<scattered_list_row> const& list_vector, 
     cudf::column_view const& list_offsets,
     cudf::lists_column_view const& source_lists_column_view,
@@ -430,25 +424,12 @@ struct list_child_constructor
       [] __device__ (auto const& row) { return row.size(); }
     );
 
-    // TODO: Implement recursion with type dispatch. Placeholder follows:
-
-    /*
-    return cudf::strings::detail::make_offsets_child_column(
-      begin,
-      begin + child_list_views.size(),
-      mr,
-      stream
-    );
-    */
-
     auto child_offsets = cudf::strings::detail::make_offsets_child_column(
       begin,
       begin + child_list_views.size(),
       mr,
       stream
     );
-
-    std::cout << "CALEB: Building child column of type:  " <<  static_cast<int>(source_lists_column_view.child().child(1).type().id()) << std::endl;
 
     auto child_column = cudf::type_dispatcher(
       source_lists_column_view.child().child(1).type(),
@@ -461,10 +442,15 @@ struct list_child_constructor
       stream
     );
 
-    std::cout << "CALEB: Built child column." << std::endl;
-
-    return std::move(child_offsets);
-
+    return cudf::make_lists_column(
+      num_child_rows,
+      std::move(child_offsets),
+      std::move(child_column),
+      cudf::UNKNOWN_NULL_COUNT,
+      {}, // TODO: Compute null mask.
+      stream,
+      mr
+    );
   }
 
   template <typename T>
@@ -487,27 +473,6 @@ struct list_child_constructor
     CUDF_FAIL("list_child_constructor unsupported!");
   }
 };
-
-void debug_print(rmm::device_vector<scattered_list_row> const& vector, std::string const& msg = "")
-{
-    std::cout << msg << " Vector size: " << vector.size() << std::endl;
-    thrust::for_each(
-      thrust::device,
-      vector.begin(),
-      vector.end(),
-      []__device__(auto list)
-      {
-        /*
-        for (int i(0); i<list.size(); ++i)
-        {
-          printf("%" PRId32, list.template element<int32_t>(i));
-        }
-        printf("]\n");
-        */
-        printf(" list(size:%" PRId32 ") [%s] \n", list.size(), list.is_from_scatter_source()? "SOURCE" : "TARGET");
-      }
-    );    
-}
 
 } // namespace;
 
@@ -552,15 +517,18 @@ std::unique_ptr<column> scatter(
 
     // TODO: Deep(er) checks that source and target have identical types.
 
+    using lists_column_device_view = cudf::detail::lists_column_device_view;
+    using scattered_list_row = cudf::lists::detail::scattered_list_row;
+
     auto source_lists_column_view = lists_column_view(source); // Checks that this is a list column.
     auto source_device_view = column_device_view::create(source, stream);
-    auto source_lists_column_device_view = cudf::detail::lists_column_device_view(*source_device_view);
-    auto source_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::SOURCE, source_lists_column_device_view, stream);
+    // auto source_lists_column_device_view = lists_column_device_view(*source_device_view);
+    auto source_vector = list_vector_from_column(scattered_list_row::SOURCE, lists_column_device_view(*source_device_view), stream);
 
     auto target_lists_column_view = lists_column_view(target); // Checks that target is a list column.
     auto target_device_view = column_device_view::create(target, stream);
-    auto target_lists_column_device_view = cudf::detail::lists_column_device_view(*target_device_view);
-    auto target_vector = list_vector_from_column(cudf::lists::detail::scattered_list_row::TARGET, target_lists_column_device_view, stream);
+    // auto target_lists_column_device_view = lists_column_device_view(*target_device_view);
+    auto target_vector = list_vector_from_column(scattered_list_row::TARGET, lists_column_device_view(*target_device_view), stream);
 
     // Scatter.
     thrust::scatter(

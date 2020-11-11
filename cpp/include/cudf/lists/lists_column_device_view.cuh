@@ -39,9 +39,10 @@ class lists_column_device_view {
   lists_column_device_view& operator= (lists_column_device_view const&) = default;
   lists_column_device_view& operator= (lists_column_device_view &&) = default;
 
-  lists_column_device_view(column_device_view const& underlying)
-    : underlying(underlying)
+  lists_column_device_view(column_device_view const& underlying_)
+    : underlying(underlying_)
   {
+    CUDF_EXPECTS(underlying_.type().id() == type_id::LIST, "lists_column_device_view only supports lists");
   }
 
   /**
