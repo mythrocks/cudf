@@ -22,9 +22,11 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/strings_column_view.hpp>
+#include <thrust/binary_search.h>
 
 namespace cudf {
 namespace lists {
@@ -170,7 +172,7 @@ rmm::device_vector<unbound_list_view> list_vector_from_column(
  * @return int32_t The last element in the list_offsets column, indicating
  *         the number of rows in the lists-column's child.
  */
-static int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStream_t stream)
+int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStream_t stream)
 {
   // Number of rows in child-column == last offset value.
   int32_t num_child_rows{};
@@ -183,6 +185,45 @@ static int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStr
   return num_child_rows;
 }
 
+std::pair<rmm::device_buffer, size_type> 
+construct_nullmask(rmm::device_vector<unbound_list_view> const& list_vector,
+                   column_view const& list_offsets,
+                   cudf::detail::lists_column_device_view const& source_lists,
+                   cudf::detail::lists_column_device_view const& target_lists,
+                   size_type num_child_rows,
+                   rmm::mr::device_memory_resource* mr,
+                   cudaStream_t stream) 
+{
+  auto is_valid_predicate = [
+    d_list_vector = list_vector.data().get(),
+    d_offsets = list_offsets.template data<size_type>(),
+    d_offsets_size = list_offsets.size(),
+    source_lists,
+    target_lists
+  ] __device__ (auto const& i) {
+
+    auto list_start = thrust::upper_bound(thrust::seq,
+                                          d_offsets,
+                                          d_offsets + d_offsets_size,
+                                          i) - 1;
+    auto list_index = list_start - d_offsets;
+    auto element_index = i - *list_start;
+
+    auto list_row = d_list_vector[list_index];
+    return !list_row.bind_to_column(source_lists, target_lists).is_null(element_index);
+  };
+
+
+  return cudf::detail::valid_if(
+    thrust::make_counting_iterator<size_type>(0),
+    thrust::make_counting_iterator<size_type>(num_child_rows),
+    is_valid_predicate,
+    stream,
+    mr
+  );
+}
+
+#ifndef NDEBUG
 void print(std::string const& msg, column_view const& col, cudaStream_t stream)
 {
   if (col.type().id() != type_id::INT32)
@@ -218,6 +259,7 @@ void print(std::string const& msg, rmm::device_vector<unbound_list_view> const& 
   );
   std::cout << "]" << std::endl;
 }
+#endif // NDEBUG
 
 /**
  * @brief (type_dispatch endpoint) Functor that constructs the child column result
@@ -325,18 +367,26 @@ struct list_child_constructor
     // Number of rows in child-column == last offset value.
     int32_t num_child_rows{get_num_child_rows(list_offsets, stream)};
 
+    auto child_null_mask = 
+      source_lists_column_view.child().nullable() || target_lists_column_view.child().nullable()
+      ? construct_nullmask(list_vector, list_offsets, source_lists, target_lists, num_child_rows, mr, stream)
+      : std::make_pair(rmm::device_buffer{}, 0);
+
+#ifndef NDEBUG
     print("list_offsets ", list_offsets, stream);
     print("source_lists.child() ", source_lists_column_view.child(), stream);
     print("source_lists.offsets() ", source_lists_column_view.offsets(), stream);
     print("target_lists.child() ", target_lists_column_view.child(), stream);
     print("target_lists.offsets() ", target_lists_column_view.offsets(), stream);
     print("scatter_rows ", list_vector, stream);
+#endif // NDEBUG
 
     // Init child-column.
     auto child_column = cudf::make_fixed_width_column(
       cudf::data_type{cudf::type_to_id<T>()},
       num_child_rows,
-      cudf::mask_state::UNALLOCATED, // TODO: Figure out child column null mask.
+      child_null_mask.first,
+      child_null_mask.second,
       stream,
       mr
     );
@@ -357,6 +407,7 @@ struct list_child_constructor
       auto list_begin_offset  = bound_column.offsets().element<size_type>(unbound_list_row.row_index());
       auto list_end_offset    = bound_column.offsets().element<size_type>(unbound_list_row.row_index()+1);
 
+#ifndef NDEBUG
       printf("%d: Unbound == %s[%d](%d), Bound size == %d, calc_begin==%d, calc_end=%d, calc_size=%d\n", 
              row_index, 
              (unbound_list_row.label() == unbound_list_view::SOURCE? "S":"T"), 
@@ -367,6 +418,7 @@ struct list_child_constructor
              list_end_offset,
              list_end_offset-list_begin_offset
       );
+#endif // NDEBUG      
       
       // Copy all elements in this list row, to "appropriate" offset in child-column.
       auto destination_start_offset = d_offsets[row_index];

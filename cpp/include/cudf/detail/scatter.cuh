@@ -128,7 +128,6 @@ struct column_scatterer_impl<list_view, MapIterator> {
                                      rmm::mr::device_memory_resource* mr,
                                      cudaStream_t stream) const
   {
-    std::cout << "CALEB: Calling scatter_list()!" << std::endl;
     return cudf::lists::detail::scatter(source, scatter_map_begin, scatter_map_end, target, mr, stream);
   }
 };

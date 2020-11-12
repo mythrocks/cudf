@@ -42,6 +42,48 @@ TYPED_TEST_CASE(TypedScatterListsTest, FixedWidthTypesNotBool);
 class ScatterListsTest : public cudf::test::BaseFixture {
 };
 
+TEST_F(ScatterListsTest, ListsOfNullableFixedWidth)
+{
+    using namespace cudf::test;
+
+    auto src_ints = fixed_width_column_wrapper<int32_t> {
+        {9, 9, 9, 9, 8, 8, 8},
+        {1, 1, 1, 0, 1, 1, 1}
+    };
+
+    auto p_src_list_column = cudf::make_lists_column(
+        2,
+        fixed_width_column_wrapper<cudf::size_type>{0, 4, 7}.release(),
+        src_ints.release(),
+        0,
+        {}
+    );
+    auto src_list_column = *p_src_list_column;
+
+    std::cout << "Scatter source: " << std::endl;
+    print(src_list_column);
+
+    auto target_list_column = lists_column_wrapper<int32_t>{
+        {1, 1}, {2, 2}, {3, 3}
+    };
+
+    std::cout << "Scatter target: " << std::endl;
+    print(target_list_column);
+
+    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+
+    std::cout << "Scatter map: " << std::endl;
+    print(scatter_map);
+
+    auto ret = cudf::scatter(
+        cudf::table_view({src_list_column}),
+        scatter_map,
+        cudf::table_view({target_list_column}));
+
+    std::cout << "Scatter result: " << std::endl;
+    print(ret->get_column(0));
+}
+
 TEST_F(ScatterListsTest, ListsOfFixedWidth)
 {
     using namespace cudf::test;
