@@ -42,23 +42,13 @@ TYPED_TEST_CASE(TypedScatterListsTest, FixedWidthTypesNotBool);
 class ScatterListsTest : public cudf::test::BaseFixture {
 };
 
-TEST_F(ScatterListsTest, ListsOfNullableFixedWidth)
+TEST_F(ScatterListsTest, ListsOfFixedWidth)
 {
     using namespace cudf::test;
 
-    auto src_ints = fixed_width_column_wrapper<int32_t> {
-        {9, 9, 9, 9, 8, 8, 8},
-        {1, 1, 1, 0, 1, 1, 1}
+    auto src_list_column = lists_column_wrapper<int32_t>{
+        {9, 9, 9, 9}, {8, 8, 8}
     };
-
-    auto p_src_list_column = cudf::make_lists_column(
-        2,
-        fixed_width_column_wrapper<cudf::size_type>{0, 4, 7}.release(),
-        src_ints.release(),
-        0,
-        {}
-    );
-    auto src_list_column = *p_src_list_column;
 
     std::cout << "Scatter source: " << std::endl;
     print(src_list_column);
@@ -84,13 +74,23 @@ TEST_F(ScatterListsTest, ListsOfNullableFixedWidth)
     print(ret->get_column(0));
 }
 
-TEST_F(ScatterListsTest, ListsOfFixedWidth)
+TEST_F(ScatterListsTest, ListsOfNullableFixedWidth)
 {
     using namespace cudf::test;
 
-    auto src_list_column = lists_column_wrapper<int32_t>{
-        {9, 9, 9, 9}, {8, 8, 8}
+    auto src_ints = fixed_width_column_wrapper<int32_t> {
+        {9, 9, 9, 9, 8, 8, 8},
+        {1, 1, 1, 0, 1, 1, 1}
     };
+
+    auto p_src_list_column = cudf::make_lists_column(
+        2,
+        fixed_width_column_wrapper<cudf::size_type>{0, 4, 7}.release(),
+        src_ints.release(),
+        0,
+        {}
+    );
+    auto src_list_column = *p_src_list_column;
 
     std::cout << "Scatter source: " << std::endl;
     print(src_list_column);
@@ -142,6 +142,40 @@ TEST_F(ScatterListsTest, ListsOfStrings)
     print(ret->get_column(0));
 }
 
+TEST_F(ScatterListsTest, ListsOfNullableStrings)
+{
+    using namespace cudf::test;
+
+    auto src_strings_column = strings_column_wrapper{
+        {"all", "the", "leaves", "are", "brown", "california", "dreaming"},
+        {    1,     1,        1,     0,       1,            0,          1}
+    };
+
+    auto src_list_column = cudf::make_lists_column(
+        2, 
+        fixed_width_column_wrapper<cudf::size_type>{0, 5, 7}.release(),
+        src_strings_column.release(),
+        0,
+        {}
+    );
+
+    auto target_list_column = lists_column_wrapper<cudf::string_view> {
+        {"zero"},
+        {"one", "one"},
+        {"two", "two"}
+    };
+
+    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+
+    auto ret = cudf::scatter(
+        cudf::table_view({src_list_column->view()}),
+        scatter_map,
+        cudf::table_view({target_list_column})
+    );
+
+    print(ret->get_column(0));
+}
+
 TEST_F(ScatterListsTest, ListsOfLists)
 {
     using namespace cudf::test;
@@ -149,6 +183,32 @@ TEST_F(ScatterListsTest, ListsOfLists)
     auto src_list_column = lists_column_wrapper<int32_t> {
         { {1,1,1,1}, {2,2,2,2} },
         { {3,3,3,3}, {4,4,4,4} }
+    };
+
+    auto target_list_column = lists_column_wrapper<int32_t> {
+        { {9,9}, {8,8}, {7,7} },
+        { {6,6}, {}, {4,4} },
+        { {3,3}, {2,2}, {1,1} }
+    };
+
+    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+
+    auto ret = cudf::scatter(
+        cudf::table_view({src_list_column}),
+        scatter_map,
+        cudf::table_view({target_list_column})
+    );
+
+    print(ret->get_column(0));
+}
+
+TEST_F(ScatterListsTest, ListsOfNullableLists)
+{
+    using namespace cudf::test;
+
+    auto src_list_column = lists_column_wrapper<int32_t> {
+        { { {1,1,1,1}, {2,2,2,2} }, { {3,3,3,3}, {4,4,4,4} } },
+        make_counting_transform_iterator(0, [](auto const&i) { return i%2 == 1; })
     };
 
     auto target_list_column = lists_column_wrapper<int32_t> {

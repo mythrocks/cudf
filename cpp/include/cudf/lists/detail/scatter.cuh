@@ -185,19 +185,31 @@ int32_t get_num_child_rows(cudf::column_view const& list_offsets, cudaStream_t s
   return num_child_rows;
 }
 
+/**
+ * @brief Constructs null mask for a scattered list's child column
+ * 
+ * @param parent_list_vector Vector of unbound_list_view, for parent lists column
+ * @param parent_list_offsets List column offsets for parent lists column
+ * @param source_lists Source lists column for scatter operation
+ * @param target_lists Target lists column for scatter operation
+ * @param num_child_rows Number of rows in child column
+ * @param mr Device memory resource used to allocate child column's null mask
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @return std::pair<rmm::device_buffer, size_type> Child column's null mask and null row count
+ */
 std::pair<rmm::device_buffer, size_type> 
-construct_nullmask(rmm::device_vector<unbound_list_view> const& list_vector,
-                   column_view const& list_offsets,
-                   cudf::detail::lists_column_device_view const& source_lists,
-                   cudf::detail::lists_column_device_view const& target_lists,
-                   size_type num_child_rows,
-                   rmm::mr::device_memory_resource* mr,
-                   cudaStream_t stream) 
+construct_child_nullmask(rmm::device_vector<unbound_list_view> const& parent_list_vector,
+                         column_view const& parent_list_offsets,
+                         cudf::detail::lists_column_device_view const& source_lists,
+                         cudf::detail::lists_column_device_view const& target_lists,
+                         size_type num_child_rows,
+                         rmm::mr::device_memory_resource* mr,
+                         cudaStream_t stream) 
 {
   auto is_valid_predicate = [
-    d_list_vector = list_vector.data().get(),
-    d_offsets = list_offsets.template data<size_type>(),
-    d_offsets_size = list_offsets.size(),
+    d_list_vector = parent_list_vector.data().get(),
+    d_offsets = parent_list_offsets.template data<size_type>(),
+    d_offsets_size = parent_list_offsets.size(),
     source_lists,
     target_lists
   ] __device__ (auto const& i) {
@@ -212,7 +224,6 @@ construct_nullmask(rmm::device_vector<unbound_list_view> const& list_vector,
     auto list_row = d_list_vector[list_index];
     return !list_row.bind_to_column(source_lists, target_lists).is_null(element_index);
   };
-
 
   return cudf::detail::valid_if(
     thrust::make_counting_iterator<size_type>(0),
@@ -369,7 +380,7 @@ struct list_child_constructor
 
     auto child_null_mask = 
       source_lists_column_view.child().nullable() || target_lists_column_view.child().nullable()
-      ? construct_nullmask(list_vector, list_offsets, source_lists, target_lists, num_child_rows, mr, stream)
+      ? construct_child_nullmask(list_vector, list_offsets, source_lists, target_lists, num_child_rows, mr, stream)
       : std::make_pair(rmm::device_buffer{}, 0);
 
 #ifndef NDEBUG
@@ -521,12 +532,18 @@ struct list_child_constructor
 
     auto string_offsets = cudf::strings::detail::child_offsets_from_string_vector(string_views, mr, stream);
     auto string_chars   = cudf::strings::detail::child_chars_from_string_vector(string_views, string_offsets->view().data<int32_t>(), 0, mr, stream);
+    auto child_null_mask = 
+      source_lists_column_view.child().nullable() || target_lists_column_view.child().nullable()
+      ? construct_child_nullmask(list_vector, list_offsets, source_lists, target_lists, num_child_rows, mr, stream)
+      : std::make_pair(rmm::device_buffer{}, 0);
 
     return cudf::make_strings_column(num_child_rows,
                                      std::move(string_offsets),
                                      std::move(string_chars),
-                                     cudf::UNKNOWN_NULL_COUNT,
-                                     {}, stream, mr);
+                                     child_null_mask.second,  // Null count.
+                                     std::move(child_null_mask.first),   // Null mask.
+                                     stream, 
+                                     mr);
   }
 
   /**
@@ -630,17 +647,21 @@ struct list_child_constructor
       stream
     );
 
+    auto child_null_mask = 
+      source_lists_column_view.child().nullable() || target_lists_column_view.child().nullable()
+      ? construct_child_nullmask(list_vector, list_offsets, source_lists, target_lists, num_child_rows, mr, stream)
+      : std::make_pair(rmm::device_buffer{}, 0);
+
     return cudf::make_lists_column(
       num_child_rows,
       std::move(child_offsets),
       std::move(child_column),
-      cudf::UNKNOWN_NULL_COUNT,
-      {}, // TODO: Compute null mask.
+      child_null_mask.second,            // Null count
+      std::move(child_null_mask.first), // Null mask
       stream,
       mr
     );
   }
-
 };
 
 } // namespace;
