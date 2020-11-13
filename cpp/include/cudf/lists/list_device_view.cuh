@@ -111,7 +111,7 @@ CUDA_DEVICE_CALLABLE list_device_view::list_device_view(
   release_assert(row_index < offsets.size() && "row_index should not have exceeded offset size");
 
   begin_offset = offsets.element<size_type>(row_index);
-  release_assert(begin_offset >= 0 && begin_offset < child().size() &&
+  release_assert(begin_offset >= 0 && begin_offset <= lists_column.child().size() &&
                  "begin_offset out of bounds.");
   _size = offsets.element<size_type>(row_index + 1) - begin_offset;
 }
@@ -119,7 +119,7 @@ CUDA_DEVICE_CALLABLE list_device_view::list_device_view(
 CUDA_DEVICE_CALLABLE size_type list_device_view::element_offset(size_type idx) const
 {
   release_assert(idx >= 0 && idx < size() && "idx out of bounds");
-  release_assert(!is_null() && !is_null(idx) && "Cannot read null element.");
+  // release_assert(!is_null() && !is_null(idx) && "Cannot read null element.");
   return begin_offset + idx;
 }
 
