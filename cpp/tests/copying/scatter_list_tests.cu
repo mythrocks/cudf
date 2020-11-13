@@ -162,10 +162,10 @@ TYPED_TEST(TypedScatterListsTest, EmptyListsOfNullableFixedWidth)
     );
 }
 
-TEST_F(ScatterListsTest, NullableListsOfNullableFixedWidth)
+TYPED_TEST(TypedScatterListsTest, NullableListsOfNullableFixedWidth)
 {
     using namespace cudf::test;
-    using T = int32_t;
+    using T = TypeParam;
 
     auto src_child = fixed_width_column_wrapper<T, int32_t> {
         {9, 9, 9, 9, 8, 8, 8},
@@ -423,22 +423,26 @@ TEST_F(ScatterListsTest, NullableListsOfNullableStrings)
     );
 }
 
-TEST_F(ScatterListsTest, ListsOfLists)
+TYPED_TEST(TypedScatterListsTest, ListsOfLists)
 {
     using namespace cudf::test;
+    using T = TypeParam;
 
-    auto src_list_column = lists_column_wrapper<int32_t> {
+    auto src_list_column = lists_column_wrapper<T, int32_t> {
         { {1,1,1,1}, {2,2,2,2} },
         { {3,3,3,3}, {4,4,4,4} }
     };
 
-    auto target_list_column = lists_column_wrapper<int32_t> {
+    auto target_list_column = lists_column_wrapper<T, int32_t> {
+        { {9,9,9}, {8,8,8}, {7,7,7} },
+        { {6,6,6}, {5,5,5}, {4,4,4} },
+        { {3,3,3}, {2,2,2}, {1,1,1} },
         { {9,9}, {8,8}, {7,7} },
-        { {6,6}, {}, {4,4} },
+        { {6,6}, {5,5}, {4,4} },
         { {3,3}, {2,2}, {1,1} }
     };
 
-    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+    auto scatter_map = fixed_width_column_wrapper<cudf::size_type>{2, 0};
 
     auto ret = cudf::scatter(
         cudf::table_view({src_list_column}),
@@ -446,25 +450,42 @@ TEST_F(ScatterListsTest, ListsOfLists)
         cudf::table_view({target_list_column})
     );
 
-    print(ret->get_column(0));
+    auto expected = lists_column_wrapper<T, int32_t> {
+            { {3,3,3,3}, {4,4,4,4} },
+            { {6,6,6}, {5,5,5}, {4,4,4} },
+            { {1,1,1,1}, {2,2,2,2} },
+            { {9,9}, {8,8}, {7,7} },
+            { {6,6}, {5,5}, {4,4} },
+            { {3,3}, {2,2}, {1,1} }
+    };
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+        expected,
+        ret->get_column(0)
+    );
 }
 
-TEST_F(ScatterListsTest, ListsOfNullableLists)
+TYPED_TEST(TypedScatterListsTest, EmptyListsOfLists)
 {
     using namespace cudf::test;
+    using T = TypeParam;
 
-    auto src_list_column = lists_column_wrapper<int32_t> {
-        { { {1,1,1,1}, {2,2,2,2} }, { {3,3,3,3}, {4,4,4,4} } },
-        make_counting_transform_iterator(0, [](auto const&i) { return i%2 == 1; })
+    auto src_list_column = lists_column_wrapper<T, int32_t> {
+        { {1,1,1,1}, {2,2,2,2} },
+        { {3,3,3,3}, {} }, 
+        {}
     };
 
-    auto target_list_column = lists_column_wrapper<int32_t> {
+    auto target_list_column = lists_column_wrapper<T, int32_t> {
+        { {9,9,9}, {8,8,8}, {7,7,7} },
+        { {6,6,6}, {5,5,5}, {4,4,4} },
+        { {3,3,3}, {2,2,2}, {1,1,1} },
         { {9,9}, {8,8}, {7,7} },
-        { {6,6}, {}, {4,4} },
+        { {6,6}, {5,5}, {4,4} },
         { {3,3}, {2,2}, {1,1} }
     };
 
-    auto scatter_map = fixed_width_column_wrapper<int32_t>{2, 0};
+    auto scatter_map = fixed_width_column_wrapper<cudf::size_type>{2, 0, 4};
 
     auto ret = cudf::scatter(
         cudf::table_view({src_list_column}),
@@ -472,18 +493,62 @@ TEST_F(ScatterListsTest, ListsOfNullableLists)
         cudf::table_view({target_list_column})
     );
 
-    print(ret->get_column(0));
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+        lists_column_wrapper<T, int32_t> {
+            { {3,3,3,3}, {} },
+            { {6,6,6}, {5,5,5}, {4,4,4} },
+            { {1,1,1,1}, {2,2,2,2} },
+            { {9,9}, {8,8}, {7,7} },
+            {  },
+            { {3,3}, {2,2}, {1,1} }
+        },
+        ret->get_column(0)
+    );
 }
 
-TEST_F(ScatterListsTest, TestScatter)
+TYPED_TEST(TypedScatterListsTest, NullListsOfLists)
 {
-    using namespace thrust;
+    using namespace cudf::test;
+    using T = TypeParam;
 
-    std::vector<int> source {9, 8};
-    std::vector<int> target {1, 2, 3};
-    std::vector<int> scatter_map {1,0,1};
+    auto src_list_column = lists_column_wrapper<T, int32_t> {
+        { 
+            { {1,1,1,1}, {2,2,2,2} },
+            { {3,3,3,3}, {} }, 
+            {} 
+        },
+        make_counting_transform_iterator(0, [](auto i) { return i != 2; })
+    };
 
-    scatter(host, source.begin(), source.end(), scatter_map.begin(), target.begin());
+    auto target_list_column = lists_column_wrapper<T, int32_t> {
+        { {9,9,9}, {8,8,8}, {7,7,7} },
+        { {6,6,6}, {5,5,5}, {4,4,4} },
+        { {3,3,3}, {2,2,2}, {1,1,1} },
+        { {9,9}, {8,8}, {7,7} },
+        { {6,6}, {5,5}, {4,4} },
+        { {3,3}, {2,2}, {1,1} }
+    };
 
-    thrust::copy(target.begin(), target.end(), std::ostream_iterator<int>(std::cout, "\n"));
+    auto scatter_map = fixed_width_column_wrapper<cudf::size_type>{2, 0, 4};
+
+    auto ret = cudf::scatter(
+        cudf::table_view({src_list_column}),
+        scatter_map,
+        cudf::table_view({target_list_column})
+    );
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+        lists_column_wrapper<T, int32_t> {
+            { 
+                { {3,3,3,3}, {} },
+                { {6,6,6}, {5,5,5}, {4,4,4} },
+                { {1,1,1,1}, {2,2,2,2} },
+                { {9,9}, {8,8}, {7,7} },
+                {  },
+                { {3,3}, {2,2}, {1,1} }
+            },
+            make_counting_transform_iterator(0, [](auto i) { return i != 4; })
+        },
+        ret->get_column(0)
+    );
 }
