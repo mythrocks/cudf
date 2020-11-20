@@ -462,10 +462,10 @@ TYPED_TEST(TypedScatterListsTest, NullListsOfLists)
     ret->get_column(0));
 }
 
-TEST_F(ScatterListsTest, ListsOfStructs)
+TYPED_TEST(TypedScatterListsTest, ListsOfStructs)
 {
   using namespace cudf::test;
-  using T = int32_t;
+  using T = TypeParam;
 
   auto source_numerics = fixed_width_column_wrapper<T> {
     9,9,9,9, 8,8,8
@@ -548,10 +548,10 @@ TEST_F(ScatterListsTest, ListsOfStructs)
    );
 }
 
-TEST_F(ScatterListsTest, ListsOfStructsWithNullMembers)
+TYPED_TEST(TypedScatterListsTest, ListsOfStructsWithNullMembers)
 {
   using namespace cudf::test;
-  using T = int32_t;
+  using T = TypeParam;
 
   auto source_numerics = fixed_width_column_wrapper<T> {
     {9,9,9,9, 8,8,8},
@@ -637,10 +637,10 @@ TEST_F(ScatterListsTest, ListsOfStructsWithNullMembers)
    );
 }
 
-TEST_F(ScatterListsTest, ListsOfNullStructs)
+TYPED_TEST(TypedScatterListsTest, ListsOfNullStructs)
 {
   using namespace cudf::test;
-  using T = int32_t;
+  using T = TypeParam;
 
   auto source_numerics = fixed_width_column_wrapper<T> {
     {9,9,9,9, 8,8,8},
@@ -727,10 +727,10 @@ TEST_F(ScatterListsTest, ListsOfNullStructs)
    );
 }
 
-TEST_F(ScatterListsTest, EmptyListsOfStructs)
+TYPED_TEST(TypedScatterListsTest, EmptyListsOfStructs)
 {
   using namespace cudf::test;
-  using T = int32_t;
+  using T = TypeParam;
 
   auto source_numerics = fixed_width_column_wrapper<T> {
     {9,9,9,9, 8,8,8},
@@ -816,10 +816,10 @@ TEST_F(ScatterListsTest, EmptyListsOfStructs)
    );
 }
 
-TEST_F(ScatterListsTest, NullListsOfStructs)
+TYPED_TEST(TypedScatterListsTest, NullListsOfStructs)
 {
   using namespace cudf::test;
-  using T = int32_t;
+  using T = TypeParam;
 
   auto source_numerics = fixed_width_column_wrapper<T> {
     {9,9,9,9, 8,8,8},

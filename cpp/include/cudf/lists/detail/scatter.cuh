@@ -615,7 +615,7 @@ struct list_child_constructor {
                                    mr);
   }
 
-    /**
+  /**
    * @brief (Recursively) constructs child columns that are structs.
    */
   template <typename T>
@@ -643,14 +643,11 @@ struct list_child_constructor {
     std::vector<std::unique_ptr<column>> child_columns;
     child_columns.reserve(num_struct_members);
 
-    auto project_member_as_list = [](column_view const& structs_member, 
-                                     cudf::size_type const& structs_list_num_rows,
-                                     column_view const& structs_list_offsets, 
-                                     rmm::device_buffer const& structs_list_nullmask,
-                                     cudf::size_type const& structs_list_null_count,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) {
-
+    auto project_member_as_list = [stream, mr](column_view const& structs_member, 
+                                               cudf::size_type const& structs_list_num_rows,
+                                               column_view const& structs_list_offsets, 
+                                               rmm::device_buffer const& structs_list_nullmask,
+                                               cudf::size_type const& structs_list_null_count) {
       return cudf::make_lists_column(
         structs_list_num_rows,
         std::make_unique<column>(structs_list_offsets, stream, mr),
@@ -662,33 +659,23 @@ struct list_child_constructor {
       );
     };
 
-    // thrust::transform?
     for (int i{0}; i < num_struct_members; ++i)
     {
-      std::cout << "CALEB: Child#" << i << std::endl;
-
       auto source_struct_member = source_structs.child(i);
-      auto target_struct_member = target_structs.child(i);
-
-      std::cout << "CALEB: Constructing member-list for source... " << std::endl;
       auto source_struct_member_list = project_member_as_list(
         source_struct_member,
         source_lists_column_view.size(),
         source_lists_column_view.offsets(),
         cudf::detail::copy_bitmask(source_lists_column_view.parent(), stream, mr),
-        source_lists_column_view.null_count(),
-        stream,
-        mr);
+        source_lists_column_view.null_count());
 
-      std::cout << "CALEB: Constructing member-list for target... " << std::endl;
+      auto target_struct_member = target_structs.child(i);
       auto target_struct_member_list = project_member_as_list(
         target_struct_member,
         target_lists_column_view.size(),
         target_lists_column_view.offsets(),
         cudf::detail::copy_bitmask(target_lists_column_view.parent(), stream, mr),
-        target_lists_column_view.null_count(),
-        stream,
-        mr);
+        target_lists_column_view.null_count());
 
       child_columns.emplace_back(
         cudf::type_dispatcher(
@@ -721,7 +708,6 @@ struct list_child_constructor {
       mr
     );
   }
-
 };
 
 /**
