@@ -10,6 +10,7 @@
 ## Improvements
 
 - PR #6838 Fix `columns` & `index` handling in dataframe constructor
+- PR #6512 Refactor rolling.cu to reduce compile time
 
 ## Bug Fixes
 
