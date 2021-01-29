@@ -702,4 +702,32 @@ TYPED_TEST(TypedCollectListTest, GroupedTimeRangeRollingWindowOnStructsWithMinPe
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result->view(), result->view());
 }
 
+TEST_F(CollectListTest, RollingWindowExcludeNullInputsHonoursMinPeriods)
+{
+  // Test that when the number of observations is fewer than min_periods,
+  // the result is null.
+  // Input column has null inputs.
+
+  using namespace cudf;
+  using namespace cudf::test;
+
+  using TypeParam = int32_t;
+  using T = TypeParam;
+
+  auto const input_column =
+    fixed_width_column_wrapper<T, int32_t>{{0, 1, 2, 3, 4, 5}, {1, 0, 1, 1, 0, 1}};
+
+  {
+    // One result row at each end should be null.
+    auto preceding   = 2;
+    auto following   = 1;
+    auto min_periods = 0;
+    auto const result =
+      rolling_window(input_column, preceding, following, min_periods, make_collect_aggregation(null_policy::EXCLUDE));
+
+    std::cout << "Received : " << std::endl;
+    print(result->view());
+  }
+}
+
 CUDF_TEST_PROGRAM_MAIN()
