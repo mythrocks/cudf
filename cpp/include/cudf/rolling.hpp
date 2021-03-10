@@ -119,6 +119,7 @@ struct window_bounds {
   {
   }
 };
+
 /**
  * @brief  Applies a grouping-aware, fixed-size rolling window function to the values in a column.
  *
