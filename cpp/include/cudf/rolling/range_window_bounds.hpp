@@ -38,10 +38,7 @@ struct range_window_bounds {
    *
    * @return window_bounds
    */
-  static range_window_bounds unbounded()
-  {
-    return range_window_bounds(true, nullptr);
-  }
+  static range_window_bounds unbounded(data_type type);
 
   bool is_unbounded() const
   { return _is_unbounded; }

@@ -29,51 +29,26 @@ namespace test
 
 struct NonTimestampRangeTest : public BaseFixture {};
 
-/*
-template <typename, typename, typename = void>
-struct is_range_scalable_2 : std::false_type {};
-
-template <typename From, typename To>
-struct is_range_scalable_2<From, // Range Type.
-                           To,   // OrderBy Type.
-                           std::enable_if_t<    cudf::is_duration<From>() 
-                                             && cudf::is_timestamp<To>(), void >> 
-{
-    using destination_duration = typename To::duration;
-    using destination_period   = typename destination_duration::period;
-    using source_period        = typename From::period;
-    static constexpr bool value = cuda::std::ratio_less_equal<destination_period, source_period>::value;
-};
-
-TEST_F(NonTimestampRangeTest, SFINAETest)
-{
-    std::cout << std::boolalpha 
-              << is_range_scalable_2<cudf::duration_D, cudf::timestamp_s>::value << std::endl
-              << is_range_scalable_2<cudf::duration_s, cudf::timestamp_D>::value << std::endl
-              << is_range_scalable_2<bool, bool>::value 
-              << std::endl;
-}
-*/
-
 TEST_F(NonTimestampRangeTest, RangeWindowTest)
 {
     std::cout << "NonTimestampRangeTest::RangeWindowTest!" << std::endl;
 
     using namespace cudf;
 
-    auto range = cudf::range_window_bounds::get(std::unique_ptr<scalar>{new cudf::duration_scalar<cudf::duration_D>{int32_t{1}, true}});
+    auto range = cudf::range_window_bounds::get(std::unique_ptr<scalar>{new cudf::duration_scalar<cudf::duration_s>{1, true}});
     std::cout << "Range.is_valid()? " << std::boolalpha << range.value().is_valid() << std::endl;
 
     auto unscaled_count = static_cast<cudf::duration_scalar<cudf::duration_D>const&>(range.value()).value().count();
     std::cout << "Unscaled count: " << unscaled_count << std::endl;
 
-    range.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-    auto scaled_as_seconds = static_cast<cudf::duration_scalar<cudf::duration_s>const&>(range.value()).value().count();
-    std::cout << "Scaled count, as seconds: " << scaled_as_seconds << std::endl;
-    auto mistakenly_scaled = static_cast<cudf::duration_scalar<cudf::duration_D>const&>(range.value()).value().count();
-    std::cout << "Scaled count, as days: "    << mistakenly_scaled << std::endl;
-    auto also_mistakenly_scaled = static_cast<cudf::detail::fixed_width_scalar<cudf::duration_D>const&>(range.value()).value().count();
-    std::cout << "Scaled count, as fixed_wd: "<< also_mistakenly_scaled << std::endl;
+    range.scale_to(data_type{type_id::TIMESTAMP_MILLISECONDS});
+    auto scaled_as_milliseconds = static_cast<cudf::duration_scalar<cudf::duration_ms>const&>(range.value()).value().count();
+    std::cout << "Scaled count, as milliseconds: " << scaled_as_milliseconds << std::endl;
+
+    auto unlimited_range = cudf::range_window_bounds::unbounded(data_type{type_id::DURATION_SECONDS});
+    unlimited_range.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
+    auto unlimited_range_as_milliseconds = static_cast<cudf::duration_scalar<cudf::duration_us>const&>(unlimited_range.value()).value().count();
+    std::cout << "Scaled unlimited range count, as microseconds: " << unlimited_range_as_milliseconds << std::endl;
 }
  
 TEST_F(NonTimestampRangeTest, Scalars)
