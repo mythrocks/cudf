@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cudf/types.hpp>
+#include <cudf/rolling/range_window_bounds.hpp>
 
 #include <memory>
 
@@ -119,6 +120,7 @@ struct window_bounds {
   {
   }
 };
+
 /**
  * @brief  Applies a grouping-aware, fixed-size rolling window function to the values in a column.
  *
@@ -375,6 +377,17 @@ std::unique_ptr<column> grouped_time_range_rolling_window(
   column_view const& input,
   window_bounds preceding_window_in_days,
   window_bounds following_window_in_days,
+  size_type min_periods,
+  std::unique_ptr<aggregation> const& aggr,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<column> grouped_range_rolling_window(
+  table_view const& group_keys,
+  column_view const& timestamp_column,
+  cudf::order const& timestamp_order,
+  column_view const& input,
+  range_window_bounds&& preceding,
+  range_window_bounds&& following,
   size_type min_periods,
   std::unique_ptr<aggregation> const& aggr,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
