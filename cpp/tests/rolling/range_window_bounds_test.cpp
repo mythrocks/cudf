@@ -27,14 +27,49 @@ namespace cudf
 namespace test
 {
 
-struct NonTimestampRangeTest : public BaseFixture {};
+struct RangeWindowBoundsTest : public BaseFixture {};
 
-TEST_F(NonTimestampRangeTest, RangeWindowTest)
+TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 {
-    std::cout << "NonTimestampRangeTest::RangeWindowTest!" << std::endl;
-
     using namespace cudf;
 
+    {
+      // Test that Ranges specified in Days can be scaled down to seconds.
+      auto range_3_days = range_window_bounds::get(std::unique_ptr<scalar>{new cudf::duration_scalar<cudf::duration_D>{3, true}});
+      EXPECT_TRUE(range_3_days.value().is_valid());
+      EXPECT_TRUE(!range_3_days.is_unbounded());
+
+      range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
+      EXPECT_EQ(static_cast<duration_scalar<duration_s>const&>(range_3_days.value()).value().count(),
+                3 * 24 * 60 * 60);
+
+      // Unchanged.
+      range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
+      EXPECT_EQ(static_cast<duration_scalar<duration_s>const&>(range_3_days.value()).value().count(),
+                3 * 24 * 60 * 60);
+
+      // Finer.
+      range_3_days.scale_to(data_type{type_id::TIMESTAMP_MILLISECONDS});
+      EXPECT_EQ(static_cast<duration_scalar<duration_ms>const&>(range_3_days.value()).value().count(),
+                3 * 24 * 60 * 60 * 1000);
+
+      // Finer.
+      range_3_days.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
+      EXPECT_EQ(static_cast<duration_scalar<duration_us>const&>(range_3_days.value()).value().count(),
+                int64_t{3} * 24 * 60 * 60 * 1000 * 1000);
+
+      // Scale back up to days. Should fail because of loss of precision.
+      EXPECT_THROW(range_3_days.scale_to(data_type{type_id::TIMESTAMP_DAYS}), cudf::logic_error);
+    }
+
+    {
+        // Negative tests. Cannot scale from higher to lower precision.
+    //   auto range_3M_ns = range_window_bounds::get(
+        //   std::unique_ptr<scalar>{
+            //   new cudf::duration_scalar<cudf::duration_ns>{int64_t{3}*1000*1000, true}});
+    }
+
+    /*
     auto range = cudf::range_window_bounds::get(std::unique_ptr<scalar>{new cudf::duration_scalar<cudf::duration_s>{1, true}});
     std::cout << "Range.is_valid()? " << std::boolalpha << range.value().is_valid() << std::endl;
 
@@ -49,11 +84,12 @@ TEST_F(NonTimestampRangeTest, RangeWindowTest)
     unlimited_range.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
     auto unlimited_range_as_milliseconds = static_cast<cudf::duration_scalar<cudf::duration_us>const&>(unlimited_range.value()).value().count();
     std::cout << "Scaled unlimited range count, as microseconds: " << unlimited_range_as_milliseconds << std::endl;
+    */
 }
  
-TEST_F(NonTimestampRangeTest, Scalars)
+TEST_F(RangeWindowBoundsTest, DELETEME)
 {
-    std::cout << "NonTimestampRangeTest::Scalars!" << std::endl;
+    std::cout << "RangeWindowBoundsTest::Scalars!" << std::endl;
 
     {
         // auto duration_scalar = cudf::make_duration_scalar(cudf::data_type{cudf::type_id::DURATION_DAYS});
@@ -110,5 +146,5 @@ TEST_F(NonTimestampRangeTest, Scalars)
     }
 }
 
-}
-}
+} // namespace test;
+} // namespace cudf;

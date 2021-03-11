@@ -40,13 +40,9 @@ struct range_window_bounds {
    */
   static range_window_bounds unbounded(data_type type);
 
-  bool is_unbounded() const
-  { return _is_unbounded; }
+  bool is_unbounded() const { return _is_unbounded; }
 
-  scalar const& value() const
-  {
-    return *_value;
-  }
+  scalar const& value() const { return *_value; }
 
   /**
    * @brief Rescale underlying scalar.
@@ -62,9 +58,18 @@ struct range_window_bounds {
   const bool _is_unbounded{false};
   std::unique_ptr<scalar> _value{nullptr};
 
-  explicit range_window_bounds(bool is_unbounded_, std::unique_ptr<scalar>&& value_ = nullptr)
+  range_window_bounds(bool is_unbounded_, std::unique_ptr<scalar>&& value_)
     : _is_unbounded{is_unbounded_}, _value{std::move(value_)}
-  {}
+  {
+    assert_invariants();
+  }
+
+  void assert_invariants() const
+  {
+    CUDF_EXPECTS(_value.get(), "Range window scalar cannot be null.");
+    CUDF_EXPECTS(_is_unbounded || _value->is_valid(), 
+                 "Bounded Range window scalar must be valid.");
+  }
 };
 
 } // namespace cudf;

@@ -38,7 +38,6 @@
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/dictionary/dictionary_factories.hpp>
 #include <cudf/rolling.hpp>
-#include <cudf/rolling/range_window_bounds.hpp>
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/types.hpp>
 #include <cudf/utilities/bit.hpp>
