@@ -29,13 +29,43 @@ namespace test
 
 struct RangeWindowBoundsTest : public BaseFixture {};
 
+namespace 
+{
+    template <typename ScalarType, 
+              typename value_type = typename ScalarType::value_type,
+              std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>
+    auto range_bounds(ScalarType const& scalar)
+    {
+        return range_window_bounds::get(std::unique_ptr<ScalarType>{new ScalarType{scalar}});
+    }
+
+    /*
+    template <typename ScalarType, 
+              typename value_type = typename ScalarType::value_type,
+              std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>
+    auto get_range_comparable_value(ScalarType const& scalar)
+    {
+        return 
+    }
+    */
+
+    /*
+    template <typename T>
+    T get_range_comparable_value(cudf::scalar const s)
+    {
+        return
+    }
+    */
+}
+ 
+
 TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 {
     using namespace cudf;
 
     {
-      // Test that Ranges specified in Days can be scaled down to seconds.
-      auto range_3_days = range_window_bounds::get(std::unique_ptr<scalar>{new cudf::duration_scalar<cudf::duration_D>{3, true}});
+      // Test that range_window_bounds specified in Days can be scaled down to seconds, milliseconds, etc.
+      auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
       EXPECT_TRUE(range_3_days.value().is_valid());
       EXPECT_TRUE(!range_3_days.is_unbounded());
 
@@ -63,10 +93,9 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
     }
 
     {
-        // Negative tests. Cannot scale from higher to lower precision.
-    //   auto range_3M_ns = range_window_bounds::get(
-        //   std::unique_ptr<scalar>{
-            //   new cudf::duration_scalar<cudf::duration_ns>{int64_t{3}*1000*1000, true}});
+      // Negative tests. Cannot scale from higher to lower precision.
+      auto range_3M_ns = range_bounds(duration_scalar<duration_ns>{int64_t{3}*1000*1000, true});
+      EXPECT_THROW(range_3M_ns.scale_to(data_type{type_id::TIMESTAMP_DAYS}), cudf::logic_error);
     }
 
     /*

@@ -30,7 +30,7 @@ struct range_window_bounds {
    * @param value Finite window boundary 
    * 
    */
-  static range_window_bounds get(std::unique_ptr<scalar>&& value) 
+  static range_window_bounds get(std::unique_ptr<scalar>&& value) // TODO: Make fixed_width_scalar?
   { return range_window_bounds(false, std::move(value)); }
 
   /**
