@@ -40,6 +40,44 @@ namespace
     }
 
     /*
+    struct range_comparable_value_fetcher
+    {
+        private:
+
+            template <typename RangeType>
+            static constexpr bool is_supported_range_type()
+            {
+                return cudf::is_duration<RangeType>();
+            }
+        
+        public:
+
+            // SFINAE catch-all.
+            template <typename RangeType, typename... Args>
+            
+
+
+    };
+    */
+
+    template <typename T>
+    T fetch_range_comparable_value(scalar const& range_scalar)
+    {
+        CUDF_EXPECTS(type_id_matches_device_storage_type<T>(range_scalar.type().id()), 
+                     "Data type of range-scalar does not match output type.");
+
+        // Bank on the rep-iterator. 
+        // TODO: Place holder for compilation.
+        return T{};
+        /*
+        return cudf::type_dispatcher(range_scalar.type(),
+                                     range_comparable_value_fetcher{},
+                                     range_scalar);
+        */
+
+    }
+
+    /*
     template <typename ScalarType, 
               typename value_type = typename ScalarType::value_type,
               std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>

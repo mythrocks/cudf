@@ -30,7 +30,7 @@ struct range_window_bounds {
    * @param value Finite window boundary 
    * 
    */
-  static range_window_bounds get(std::unique_ptr<scalar>&& value) // TODO: Make fixed_width_scalar?
+  static range_window_bounds get(std::unique_ptr<scalar>&& value) 
   { return range_window_bounds(false, std::move(value)); }
 
   /**
@@ -38,7 +38,7 @@ struct range_window_bounds {
    *
    * @return window_bounds
    */
-  static range_window_bounds unbounded(data_type type);
+  static range_window_bounds unbounded(data_type type); // TODO: Make type a template parameter?
 
   bool is_unbounded() const { return _is_unbounded; }
 
@@ -56,7 +56,8 @@ struct range_window_bounds {
  private:
 
   const bool _is_unbounded{false};
-  std::unique_ptr<scalar> _value{nullptr};
+  std::unique_ptr<scalar> _value{nullptr}; // Required: Reseated in `scale_to()`. 
+                                           // Allocates new scalar.
 
   range_window_bounds(bool is_unbounded_, std::unique_ptr<scalar>&& value_)
     : _is_unbounded{is_unbounded_}, _value{std::move(value_)}
@@ -64,12 +65,7 @@ struct range_window_bounds {
     assert_invariants();
   }
 
-  void assert_invariants() const
-  {
-    CUDF_EXPECTS(_value.get(), "Range window scalar cannot be null.");
-    CUDF_EXPECTS(_is_unbounded || _value->is_valid(), 
-                 "Bounded Range window scalar must be valid.");
-  }
+  void assert_invariants() const;
 };
 
 } // namespace cudf;

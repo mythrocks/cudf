@@ -18,57 +18,10 @@
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
+#include "range_window_bounds_detail.hpp"
 
 namespace cudf {
 namespace {
-
-template <typename, typename, typename = void>
-struct is_range_scalable : std::false_type {};
-
-template <typename From, typename To>
-struct is_range_scalable<From, // Range Type.
-                         To,   // OrderBy Type.
-                         std::enable_if_t<    cudf::is_duration<From>() 
-                                           && cudf::is_timestamp<To>(), void >> 
-{
-    using destination_duration = typename To::duration;
-    using destination_period   = typename destination_duration::period;
-    using source_period        = typename From::period;
-    static constexpr bool value = cuda::std::ratio_less_equal<destination_period, source_period>::value;
-};
-
-template <typename OrderByColumnType>
-struct range_scaler // A scalar_scaler, if you will.
-{
-  // SFINAE catch-all.
-  template <typename RangeType, typename... Args>
-  std::enable_if_t<!is_range_scalable<RangeType, OrderByColumnType>::value, 
-    std::unique_ptr<scalar>> operator()(Args&&... args)
-  {
-    CUDF_FAIL("Unsupported RangeType!");
-  }
-
-  template <typename RangeType,
-            std::enable_if_t<  is_timestamp<OrderByColumnType>()
-                            && is_duration<RangeType>()
-                            && is_range_scalable<RangeType, OrderByColumnType>::value, void> * = nullptr>
-  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
-                                     bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
-  {
-    using order_by_column_duration_t = typename OrderByColumnType::duration;
-    using rep_t = typename order_by_column_duration_t::rep;
-
-    auto const& range_scalar_duration = static_cast< cudf::duration_scalar<RangeType> const& >(range_scalar);
-    return std::unique_ptr<scalar>{
-             new cudf::duration_scalar<order_by_column_duration_t>{
-                 is_unbounded_range
-                   ? order_by_column_duration_t{std::numeric_limits<rep_t>::max()} 
-                   : order_by_column_duration_t{range_scalar_duration.value()},
-                 true}};
-  }
-};
 
 struct type_deducing_range_scaler
 {
@@ -79,7 +32,7 @@ struct type_deducing_range_scaler
                                      rmm::mr::device_memory_resource* mr) const
   {
     return cudf::type_dispatcher(range_scalar.type(),
-                                 range_scaler<OrderByColumnType>{},
+                                 cudf::detail::range_scaler<OrderByColumnType>{},
                                  range_scalar,
                                  is_unbounded_range,
                                  stream,
@@ -102,6 +55,13 @@ void range_window_bounds::scale_to(data_type target_type,
                                              stream,
                                              mr));
     assert_invariants();
+}
+
+void range_window_bounds::assert_invariants() const
+{
+  CUDF_EXPECTS(_value.get(), "Range window scalar cannot be null.");
+  CUDF_EXPECTS(_is_unbounded || _value->is_valid(), 
+                "Bounded Range window scalar must be valid.");
 }
 
 range_window_bounds range_window_bounds::unbounded(data_type type)
