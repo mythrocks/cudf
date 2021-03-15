@@ -56,7 +56,7 @@ struct range_scaler // A scalar_scaler, if you will.
   std::enable_if_t<!is_range_scalable<RangeType, OrderByColumnType>::value, 
     std::unique_ptr<scalar>> operator()(Args&&... args)
   {
-    CUDF_FAIL("Unsupported RangeType!");
+    CUDF_FAIL("Unsupported range type for order by column!");
   }
 
   template <typename RangeType,

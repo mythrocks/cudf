@@ -795,7 +795,6 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   }
 }
 
-/*
 struct dispatch_grouped_range_rolling_window
 {
   template <typename OrderByColumnType, typename... Args>
@@ -807,11 +806,41 @@ struct dispatch_grouped_range_rolling_window
 
   // TODO: Use std::forward<>() like type_dispatcher does.
   template <typename OrderByColumnType>
-  std::enable_if_t< std::is_same<OrderByColumnType, cudf::timestamp_D>(), 
-    std::unique_ptr<column> > operator()(table_view const& group_keys,
+  std::enable_if_t< std::is_same<OrderByColumnType, cudf::timestamp_D>::value, 
+    std::unique_ptr<column> > operator()(column_view const& input,
                                          column_view const& order_by_column,
                                          cudf::order const& order,
-                                         column_view const& input,
+                                         rmm::device_vector<cudf::size_type> const& group_offsets,
+                                         rmm::device_vector<cudf::size_type> const& group_labels,
+                                         range_window_bounds&& preceding,  
+                                         range_window_bounds&& following,
+                                         size_type min_periods,
+                                         std::unique_ptr<aggregation> const& aggr,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::mr::device_memory_resource* mr)
+  {
+    return grouped_range_rolling_window_impl<int64_t>(
+      input,
+      cudf::cast(order_by_column, cudf::data_type(cudf::type_id::TIMESTAMP_SECONDS), mr)->view(),
+      order,
+      group_offsets,
+      group_labels,
+      std::move(preceding),
+      std::move(following),
+      min_periods,
+      aggr,
+      stream,
+      mr);
+  }
+
+  template <typename OrderByColumnType>
+  std::enable_if_t< cudf::is_timestamp<OrderByColumnType>() &&
+                    !std::is_same<OrderByColumnType, cudf::timestamp_D>::value, 
+    std::unique_ptr<column> > operator()(column_view const& input,
+                                         column_view const& order_by_column,
+                                         cudf::order const& order,
+                                         rmm::device_vector<cudf::size_type> const& group_offsets,
+                                         rmm::device_vector<cudf::size_type> const& group_labels,
                                          range_window_bounds&& preceding,
                                          range_window_bounds&& following,
                                          size_type min_periods,
@@ -819,10 +848,20 @@ struct dispatch_grouped_range_rolling_window
                                          rmm::cuda_stream_view stream,
                                          rmm::mr::device_memory_resource* mr)
   {
-    return 
+    return grouped_range_rolling_window_impl<int64_t>(
+      input,
+      order_by_column,
+      order,
+      group_offsets,
+      group_labels,
+      std::move(preceding),
+      std::move(following),
+      min_periods,
+      aggr,
+      stream,
+      mr);
   }
 };
-*/
 
 }  // namespace
 
@@ -858,6 +897,20 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
     group_labels  = helper.group_labels();
   }
 
+  return cudf::type_dispatcher(order_by_column.type(),
+                               dispatch_grouped_range_rolling_window{},
+                               input,
+                               order_by_column,
+                               order,
+                               group_offsets,
+                               group_labels,
+                               std::move(preceding),
+                               std::move(following),
+                               min_periods,
+                               aggr,
+                               stream,
+                               mr);
+  /*
   // Assumes that `timestamp_column` is actually of a timestamp type.
   CUDF_EXPECTS(is_supported_range_frame_unit(order_by_column.type()),
                "Unsupported data-type for `timestamp`-based rolling window operation!");
@@ -879,6 +932,7 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
     aggr,
     stream,
     mr);
+    */
 }
 
 }  // namespace detail
