@@ -885,16 +885,18 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                                           std::unique_ptr<aggregation> const& aggr,
                                                           rmm::mr::device_memory_resource* mr)
 {
+  auto to_range_bounds = [](window_bounds const& bounds) {
+    return bounds.is_unbounded
+      ? range_window_bounds::unbounded(data_type{type_id::DURATION_DAYS})
+      : detail::range_bounds(duration_scalar<duration_D>{bounds.value, true});
+  };
+
   return detail::grouped_time_range_rolling_window(group_keys,
                                                    timestamp_column,
                                                    timestamp_order,
                                                    input,
-                                                   preceding_window_in_days.is_unbounded
-                                                     ? range_window_bounds::unbounded(data_type{type_id::DURATION_DAYS})
-                                                     : detail::range_bounds(duration_scalar<duration_D>{preceding_window_in_days.value, true}),
-                                                   following_window_in_days.is_unbounded
-                                                     ? range_window_bounds::unbounded(data_type{type_id::DURATION_DAYS})
-                                                     : detail::range_bounds(duration_scalar<duration_D>{following_window_in_days.value, true}),
+                                                   to_range_bounds(preceding_window_in_days),
+                                                   to_range_bounds(following_window_in_days),
                                                    min_periods,
                                                    aggr,
                                                    rmm::cuda_stream_default,
