@@ -27,6 +27,12 @@ constexpr bool is_supported_range_type()
     return cudf::is_duration<RangeType>();
 }
 
+template <typename ColumnType>
+constexpr bool is_supported_order_by_column_type()
+{
+    return cudf::is_timestamp<ColumnType>();
+}
+
 template <typename From, typename To, typename = void>
 struct is_range_scalable : std::false_type {};
 
@@ -109,7 +115,7 @@ bool rep_type_compatible_for_range_comparison(type_id id)
 } // namespace <unnamed>;
 
 template <typename RepType>
-RepType fetch_range_comparable_value(range_window_bounds const& range_bounds)
+RepType range_comparable_value(range_window_bounds const& range_bounds)
 {
     auto const& range_scalar = range_bounds.range_scalar();
     CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 

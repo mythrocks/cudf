@@ -31,22 +31,22 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
       EXPECT_TRUE(!range_3_days.is_unbounded());
 
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
+      EXPECT_EQ(range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60);
 
       // Unchanged.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
+      EXPECT_EQ(range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60);
 
       // Finer.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_MILLISECONDS});
-      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
+      EXPECT_EQ(range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60 * 1000);
 
       // Finer.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
-      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
+      EXPECT_EQ(range_comparable_value<int64_t>(range_3_days),
                 int64_t{3} * 24 * 60 * 60 * 1000 * 1000);
 
       // Scale back up to days. Should fail because of loss of precision.
@@ -60,10 +60,10 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 
       auto range_3M_ns = range_bounds(duration_scalar<duration_ns>{int64_t{3}*1000*1000, true});
       EXPECT_THROW(range_3M_ns.scale_to(data_type{type_id::TIMESTAMP_DAYS}), cudf::logic_error);
-      EXPECT_THROW(fetch_range_comparable_value<int32_t>(range_3M_ns), cudf::logic_error);
+      EXPECT_THROW(range_comparable_value<int32_t>(range_3M_ns), cudf::logic_error);
 
       auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
-      EXPECT_THROW(fetch_range_comparable_value<int64_t>(range_3_days), cudf::logic_error);
+      EXPECT_THROW(range_comparable_value<int64_t>(range_3_days), cudf::logic_error);
     }
 }
  
