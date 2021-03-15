@@ -21,7 +21,13 @@
 namespace cudf {
 namespace detail {
 
-template <typename, typename, typename = void>
+template <typename RangeType>
+constexpr bool is_supported_range_type()
+{
+    return cudf::is_duration<RangeType>();
+}
+
+template <typename From, typename To, typename = void>
 struct is_range_scalable : std::false_type {};
 
 template <typename From, typename To>
@@ -68,6 +74,58 @@ struct range_scaler // A scalar_scaler, if you will.
                  true}};
   }
 };
+
+namespace
+{
+template <typename RepType>
+struct range_comparable_value_fetcher
+{
+    template <typename RangeType, typename... Args>
+    std::enable_if_t< !cudf::detail::is_supported_range_type<RangeType>(), RepType >
+    operator()(Args&&...) const 
+    {
+        CUDF_FAIL("Unsupported window range type!");
+    }
+
+    template <typename RangeType>
+    std::enable_if_t< cudf::is_duration<RangeType>(), RepType >
+    operator()(scalar const& range_scalar) const
+    {
+        return static_cast<duration_scalar<RangeType>const&>(range_scalar).value().count();
+    }
+};
+
+template <typename RepType>
+bool rep_type_compatible_for_range_comparison(type_id id)
+{
+    return (id == type_id::DURATION_DAYS         && std::is_same<RepType, int32_t>())
+        || (id == type_id::DURATION_SECONDS      && std::is_same<RepType, int64_t>())
+        || (id == type_id::DURATION_MILLISECONDS && std::is_same<RepType, int64_t>())
+        || (id == type_id::DURATION_MICROSECONDS && std::is_same<RepType, int64_t>())
+        || (id == type_id::DURATION_NANOSECONDS  && std::is_same<RepType, int64_t>())
+        || type_id_matches_device_storage_type<RepType>(id);
+};
+
+} // namespace <unnamed>;
+
+template <typename RepType>
+RepType fetch_range_comparable_value(range_window_bounds const& range_bounds)
+{
+    auto const& range_scalar = range_bounds.range_scalar();
+    CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 
+                    "Data type of window range scalar does not match output type.");
+    return cudf::type_dispatcher(range_scalar.type(),
+                                    range_comparable_value_fetcher<RepType>{},
+                                    range_scalar);
+}
+
+template <typename ScalarType, 
+          typename value_type = typename ScalarType::value_type,
+          std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>
+auto range_bounds(ScalarType const& scalar)
+{
+    return range_window_bounds::get(std::unique_ptr<ScalarType>{new ScalarType{scalar}});
+}
 
 } // namespace detail;
 } // namespace cudf;
