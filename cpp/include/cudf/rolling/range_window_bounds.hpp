@@ -30,8 +30,8 @@ struct range_window_bounds {
    * @param value Finite window boundary 
    * 
    */
-  static range_window_bounds get(std::unique_ptr<scalar>&& value) 
-  { return range_window_bounds(false, std::move(value)); }
+  static range_window_bounds get(std::unique_ptr<scalar>&& scalar_) 
+  { return range_window_bounds(false, std::move(scalar_)); }
 
   /**
    * @brief Construct unbounded window boundary.
@@ -42,7 +42,7 @@ struct range_window_bounds {
 
   bool is_unbounded() const { return _is_unbounded; }
 
-  scalar const& value() const { return *_value; }
+  scalar const& range_scalar() const { return *_range_scalar; }
 
   /**
    * @brief Rescale underlying scalar.
@@ -56,11 +56,11 @@ struct range_window_bounds {
  private:
 
   const bool _is_unbounded{false};
-  std::unique_ptr<scalar> _value{nullptr}; // Required: Reseated in `scale_to()`. 
-                                           // Allocates new scalar.
+  std::unique_ptr<scalar> _range_scalar{nullptr}; // Required: Reseated in `scale_to()`. 
+                                                  // Allocates new scalar.
 
-  range_window_bounds(bool is_unbounded_, std::unique_ptr<scalar>&& value_)
-    : _is_unbounded{is_unbounded_}, _value{std::move(value_)}
+  range_window_bounds(bool is_unbounded_, std::unique_ptr<scalar>&& range_scalar_)
+    : _is_unbounded{is_unbounded_}, _range_scalar{std::move(range_scalar_)}
   {
     assert_invariants();
   }

@@ -46,21 +46,21 @@ void range_window_bounds::scale_to(data_type target_type,
                                    rmm::cuda_stream_view stream, 
                                    rmm::mr::device_memory_resource* mr)
 {
-    scalar const& range_scalar = *_value;
+    scalar const& range_scalar = *_range_scalar;
 
-    _value = std::move(cudf::type_dispatcher(target_type,
-                                             type_deducing_range_scaler{},
-                                             range_scalar,
-                                             _is_unbounded,
-                                             stream,
-                                             mr));
+    _range_scalar = std::move(cudf::type_dispatcher(target_type,
+                                                    type_deducing_range_scaler{},
+                                                    range_scalar,
+                                                    _is_unbounded,
+                                                    stream,
+                                                    mr));
     assert_invariants();
 }
 
 void range_window_bounds::assert_invariants() const
 {
-  CUDF_EXPECTS(_value.get(), "Range window scalar cannot be null.");
-  CUDF_EXPECTS(_is_unbounded || _value->is_valid(), 
+  CUDF_EXPECTS(_range_scalar.get(), "Range window scalar cannot be null.");
+  CUDF_EXPECTS(_is_unbounded || _range_scalar->is_valid(), 
                 "Bounded Range window scalar must be valid.");
 }
 

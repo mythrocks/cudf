@@ -39,7 +39,7 @@ namespace
         return range_window_bounds::get(std::unique_ptr<ScalarType>{new ScalarType{scalar}});
     }
 
-    /*
+    template <typename RepType>
     struct range_comparable_value_fetcher
     {
         private:
@@ -52,50 +52,43 @@ namespace
         
         public:
 
-            // SFINAE catch-all.
             template <typename RangeType, typename... Args>
-            
+            std::enable_if_t< !is_supported_range_type<RangeType>(), RepType>
+            operator()(Args&&...) const 
+            {
+                CUDF_FAIL("Unsupported window range type!");
+            }
 
-
+            template <typename RangeType>
+            std::enable_if_t< cudf::is_duration<RangeType>(), RepType>
+            operator()(scalar const& range_scalar) const
+            {
+                return static_cast<duration_scalar<RangeType>const&>(range_scalar).value().count();
+            }
     };
-    */
 
-    template <typename T>
-    T fetch_range_comparable_value(scalar const& range_scalar)
+    template <typename RepType>
+    bool rep_type_compatible_for_range_comparison(type_id id)
     {
-        CUDF_EXPECTS(type_id_matches_device_storage_type<T>(range_scalar.type().id()), 
-                     "Data type of range-scalar does not match output type.");
+        return (id == type_id::DURATION_DAYS && std::is_same<RepType, int32_t>())
+            || (id == type_id::DURATION_SECONDS && std::is_same<RepType, int64_t>())
+            || (id == type_id::DURATION_MILLISECONDS && std::is_same<RepType, int64_t>())
+            || (id == type_id::DURATION_MICROSECONDS && std::is_same<RepType, int64_t>())
+            || (id == type_id::DURATION_NANOSECONDS && std::is_same<RepType, int64_t>())
+            || type_id_matches_device_storage_type<RepType>(id);
+    };
 
-        // Bank on the rep-iterator. 
-        // TODO: Place holder for compilation.
-        return T{};
-        /*
+    template <typename RepType>
+    RepType fetch_range_comparable_value(range_window_bounds const& range_bounds)
+    {
+        auto const& range_scalar = range_bounds.range_scalar();
+        CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 
+                     "Data type of window range scalar does not match output type.");
         return cudf::type_dispatcher(range_scalar.type(),
-                                     range_comparable_value_fetcher{},
+                                     range_comparable_value_fetcher<RepType>{},
                                      range_scalar);
-        */
-
     }
-
-    /*
-    template <typename ScalarType, 
-              typename value_type = typename ScalarType::value_type,
-              std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>
-    auto get_range_comparable_value(ScalarType const& scalar)
-    {
-        return 
-    }
-    */
-
-    /*
-    template <typename T>
-    T get_range_comparable_value(cudf::scalar const s)
-    {
-        return
-    }
-    */
 }
- 
 
 TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 {
@@ -104,26 +97,26 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
     {
       // Test that range_window_bounds specified in Days can be scaled down to seconds, milliseconds, etc.
       auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
-      EXPECT_TRUE(range_3_days.value().is_valid());
+      EXPECT_TRUE(range_3_days.range_scalar().is_valid());
       EXPECT_TRUE(!range_3_days.is_unbounded());
 
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-      EXPECT_EQ(static_cast<duration_scalar<duration_s>const&>(range_3_days.value()).value().count(),
+      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60);
 
       // Unchanged.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-      EXPECT_EQ(static_cast<duration_scalar<duration_s>const&>(range_3_days.value()).value().count(),
+      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60);
 
       // Finer.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_MILLISECONDS});
-      EXPECT_EQ(static_cast<duration_scalar<duration_ms>const&>(range_3_days.value()).value().count(),
+      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
                 3 * 24 * 60 * 60 * 1000);
 
       // Finer.
       range_3_days.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
-      EXPECT_EQ(static_cast<duration_scalar<duration_us>const&>(range_3_days.value()).value().count(),
+      EXPECT_EQ(fetch_range_comparable_value<int64_t>(range_3_days),
                 int64_t{3} * 24 * 60 * 60 * 1000 * 1000);
 
       // Scale back up to days. Should fail because of loss of precision.
