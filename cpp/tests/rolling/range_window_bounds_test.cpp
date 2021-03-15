@@ -55,7 +55,7 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 
     {
       // Negative tests. 
-      // Cannot scale from higher to lower precision.
+      // Cannot scale from higher to lower precision. (Congruent with std::chrono::duration scaling.)
       // Cannot extract duration value in the wrong representation type.
 
       auto range_3M_ns = range_bounds(duration_scalar<duration_ns>{int64_t{3}*1000*1000, true});

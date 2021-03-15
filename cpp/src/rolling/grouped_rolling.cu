@@ -205,14 +205,6 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
 namespace {
 
-bool is_supported_range_frame_unit(cudf::data_type const& data_type)
-{
-  auto id = data_type.id();
-  return id == cudf::type_id::TIMESTAMP_DAYS || id == cudf::type_id::TIMESTAMP_SECONDS ||
-         id == cudf::type_id::TIMESTAMP_MILLISECONDS ||
-         id == cudf::type_id::TIMESTAMP_MICROSECONDS || id == cudf::type_id::TIMESTAMP_NANOSECONDS;
-}
-
 /// Given a single, ungrouped timestamp column, return the indices corresponding
 /// to the first null timestamp, and (one past) the last null timestamp.
 /// The input column is sorted, with all null values clustered either
@@ -804,7 +796,6 @@ struct dispatch_grouped_range_rolling_window
     CUDF_FAIL("Unsupported OrderBy column type.");
   }
 
-  // TODO: Use std::forward<>() like type_dispatcher does.
   template <typename OrderByColumnType>
   std::enable_if_t< std::is_same<OrderByColumnType, cudf::timestamp_D>::value, 
     std::unique_ptr<column> > operator()(column_view const& input,
@@ -833,33 +824,12 @@ struct dispatch_grouped_range_rolling_window
       mr);
   }
 
-  template <typename OrderByColumnType>
+  template <typename OrderByColumnType, typename... Args>
   std::enable_if_t< cudf::is_timestamp<OrderByColumnType>() &&
                     !std::is_same<OrderByColumnType, cudf::timestamp_D>::value, 
-    std::unique_ptr<column> > operator()(column_view const& input,
-                                         column_view const& order_by_column,
-                                         cudf::order const& order,
-                                         rmm::device_vector<cudf::size_type> const& group_offsets,
-                                         rmm::device_vector<cudf::size_type> const& group_labels,
-                                         range_window_bounds&& preceding,
-                                         range_window_bounds&& following,
-                                         size_type min_periods,
-                                         std::unique_ptr<aggregation> const& aggr,
-                                         rmm::cuda_stream_view stream,
-                                         rmm::mr::device_memory_resource* mr)
+    std::unique_ptr<column> > operator()(Args&&... args)
   {
-    return grouped_range_rolling_window_impl<int64_t>(
-      input,
-      order_by_column,
-      order,
-      group_offsets,
-      group_labels,
-      std::move(preceding),
-      std::move(following),
-      min_periods,
-      aggr,
-      stream,
-      mr);
+    return grouped_range_rolling_window_impl<int64_t>(std::forward<Args>(args)...);
   }
 };
 
@@ -910,29 +880,6 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                aggr,
                                stream,
                                mr);
-  /*
-  // Assumes that `timestamp_column` is actually of a timestamp type.
-  CUDF_EXPECTS(is_supported_range_frame_unit(order_by_column.type()),
-               "Unsupported data-type for `timestamp`-based rolling window operation!");
-
-  // TODO: cudf::type_dispatcher.
-  auto is_timestamp_in_days = order_by_column.type().id() == cudf::type_id::TIMESTAMP_DAYS;
-
-  return grouped_range_rolling_window_impl<int64_t>(
-    input,
-    is_timestamp_in_days
-      ? cudf::cast(order_by_column, cudf::data_type(cudf::type_id::TIMESTAMP_SECONDS), mr)->view()
-      : order_by_column,
-    order,
-    group_offsets,
-    group_labels,
-    std::move(preceding),
-    std::move(following),
-    min_periods,
-    aggr,
-    stream,
-    mr);
-    */
 }
 
 }  // namespace detail
