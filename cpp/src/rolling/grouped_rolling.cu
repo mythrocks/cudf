@@ -17,6 +17,8 @@
 #include <cudf/detail/iterator.cuh>
 #include <cudf/unary.hpp>
 #include "rolling_detail.cuh"
+#include <cudf/rolling/range_window_bounds.hpp>
+#include "range_window_bounds_detail.hpp"
 
 namespace cudf {
 
@@ -211,25 +213,6 @@ bool is_supported_range_frame_unit(cudf::data_type const& data_type)
          id == cudf::type_id::TIMESTAMP_MICROSECONDS || id == cudf::type_id::TIMESTAMP_NANOSECONDS;
 }
 
-/// Fetches multiplication factor to normalize window sizes, depending on the datatype of the
-/// timestamp column. Used for time-based rolling-window operations. E.g. If the timestamp column is
-/// in TIMESTAMP_SECONDS, and the window sizes are specified in DAYS, the window size needs to be
-/// multiplied by `24*60*60`, before comparisons with the timestamps.
-size_t multiplication_factor(cudf::data_type const& data_type)
-{
-  // Assume timestamps.
-  switch (data_type.id()) {
-    case cudf::type_id::TIMESTAMP_DAYS: return 1L;
-    case cudf::type_id::TIMESTAMP_SECONDS: return 24L * 60 * 60;
-    case cudf::type_id::TIMESTAMP_MILLISECONDS: return 24L * 60 * 60 * 1000;
-    case cudf::type_id::TIMESTAMP_MICROSECONDS: return 24L * 60 * 60 * 1000 * 1000;
-    case cudf::type_id::TIMESTAMP_NANOSECONDS: return 24L * 60 * 60 * 1000 * 1000 * 1000;
-    default:
-      CUDF_FAIL("Unexpected data-type for timestamp-based rolling window operation!");
-      return {};
-  }
-}
-
 /// Given a single, ungrouped timestamp column, return the indices corresponding
 /// to the first null timestamp, and (one past) the last null timestamp.
 /// The input column is sorted, with all null values clustered either
@@ -252,8 +235,6 @@ std::tuple<size_type, size_type> get_null_bounds_for_timestamp_column(
                            : std::make_tuple(num_rows - num_nulls, num_rows);
 }
 
-using TimeT = int64_t;  // Timestamp representations normalized to int64_t.
-
 template <typename Calculator>
 std::unique_ptr<column> expand_to_column(Calculator const& calc,
                                          size_type const& num_rows,
@@ -275,6 +256,7 @@ std::unique_ptr<column> expand_to_column(Calculator const& calc,
 ///   1. no grouping keys specified
 ///   2. timetamps in ASCENDING order.
 /// Treat as one single group.
+template <typename TimeT>
 std::unique_ptr<column> time_range_window_ASC(column_view const& input,
                                               column_view const& timestamp_column,
                                               TimeT preceding_window,
@@ -431,6 +413,7 @@ get_null_bounds_for_timestamp_column(column_view const& timestamp_column,
 }
 
 // Time-range window computation, for timestamps in ASCENDING order.
+template <typename TimeT>
 std::unique_ptr<column> time_range_window_ASC(
   column_view const& input,
   column_view const& timestamp_column,
@@ -541,6 +524,7 @@ std::unique_ptr<column> time_range_window_ASC(
 ///   1. no grouping keys specified
 ///   2. timetamps in DESCENDING order.
 /// Treat as one single group.
+template <typename TimeT>
 std::unique_ptr<column> time_range_window_DESC(column_view const& input,
                                                column_view const& timestamp_column,
                                                TimeT preceding_window,
@@ -630,6 +614,7 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
 }
 
 // Time-range window computation, for timestamps in DESCENDING order.
+template <typename TimeT>
 std::unique_ptr<column> time_range_window_DESC(
   column_view const& input,
   column_view const& timestamp_column,
@@ -741,30 +726,32 @@ std::unique_ptr<column> time_range_window_DESC(
   }
 }
 
+template <typename TimeT>
 std::unique_ptr<column> grouped_time_range_rolling_window_impl(
   column_view const& input,
   column_view const& timestamp_column,
   cudf::order const& timestamp_ordering,
   rmm::device_vector<cudf::size_type> const& group_offsets,
   rmm::device_vector<cudf::size_type> const& group_labels,
-  window_bounds preceding_window_in_days,  // TODO: Consider taking offset-type as type_id. Assumes
-                                           // days for now.
-  window_bounds following_window_in_days,
+  range_window_bounds&& preceding_window_in_days,  // TODO: Consider taking offset-type as type_id. Assumes
+                                                   // days for now.
+  range_window_bounds&& following_window_in_days,
   size_type min_periods,
   std::unique_ptr<aggregation> const& aggr,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  TimeT mult_factor{static_cast<TimeT>(multiplication_factor(timestamp_column.type()))};
+  preceding_window_in_days.scale_to(timestamp_column.type());
+  following_window_in_days.scale_to(timestamp_column.type());
 
   if (timestamp_ordering == cudf::order::ASCENDING) {
     return group_offsets.empty()
              ? time_range_window_ASC(input,
                                      timestamp_column,
-                                     preceding_window_in_days.value * mult_factor,
-                                     preceding_window_in_days.is_unbounded,
-                                     following_window_in_days.value * mult_factor,
-                                     following_window_in_days.is_unbounded,
+                                     detail::fetch_range_comparable_value<TimeT>(preceding_window_in_days),
+                                     preceding_window_in_days.is_unbounded(),
+                                     cudf::detail::fetch_range_comparable_value<TimeT>(following_window_in_days),
+                                     following_window_in_days.is_unbounded(),
                                      min_periods,
                                      aggr,
                                      stream,
@@ -773,10 +760,10 @@ std::unique_ptr<column> grouped_time_range_rolling_window_impl(
                                      timestamp_column,
                                      group_offsets,
                                      group_labels,
-                                     preceding_window_in_days.value * mult_factor,
-                                     preceding_window_in_days.is_unbounded,
-                                     following_window_in_days.value * mult_factor,
-                                     following_window_in_days.is_unbounded,
+                                     cudf::detail::fetch_range_comparable_value<TimeT>(preceding_window_in_days),
+                                     preceding_window_in_days.is_unbounded(),
+                                     cudf::detail::fetch_range_comparable_value<TimeT>(following_window_in_days),
+                                     following_window_in_days.is_unbounded(),
                                      min_periods,
                                      aggr,
                                      stream,
@@ -785,10 +772,10 @@ std::unique_ptr<column> grouped_time_range_rolling_window_impl(
     return group_offsets.empty()
              ? time_range_window_DESC(input,
                                       timestamp_column,
-                                      preceding_window_in_days.value * mult_factor,
-                                      preceding_window_in_days.is_unbounded,
-                                      following_window_in_days.value * mult_factor,
-                                      following_window_in_days.is_unbounded,
+                                      cudf::detail::fetch_range_comparable_value<TimeT>(preceding_window_in_days),
+                                      preceding_window_in_days.is_unbounded(),
+                                      cudf::detail::fetch_range_comparable_value<TimeT>(following_window_in_days),
+                                      following_window_in_days.is_unbounded(),
                                       min_periods,
                                       aggr,
                                       stream,
@@ -797,10 +784,10 @@ std::unique_ptr<column> grouped_time_range_rolling_window_impl(
                                       timestamp_column,
                                       group_offsets,
                                       group_labels,
-                                      preceding_window_in_days.value * mult_factor,
-                                      preceding_window_in_days.is_unbounded,
-                                      following_window_in_days.value * mult_factor,
-                                      following_window_in_days.is_unbounded,
+                                      cudf::detail::fetch_range_comparable_value<TimeT>(preceding_window_in_days),
+                                      preceding_window_in_days.is_unbounded(),
+                                      cudf::detail::fetch_range_comparable_value<TimeT>(following_window_in_days),
+                                      following_window_in_days.is_unbounded(),
                                       min_periods,
                                       aggr,
                                       stream,
@@ -816,8 +803,8 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                                           column_view const& timestamp_column,
                                                           cudf::order const& timestamp_order,
                                                           column_view const& input,
-                                                          window_bounds preceding_window_in_days,
-                                                          window_bounds following_window_in_days,
+                                                          range_window_bounds&& preceding_window_in_days,
+                                                          range_window_bounds&& following_window_in_days,
                                                           size_type min_periods,
                                                           std::unique_ptr<aggregation> const& aggr,
                                                           rmm::cuda_stream_view stream,
@@ -848,7 +835,7 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
 
   auto is_timestamp_in_days = timestamp_column.type().id() == cudf::type_id::TIMESTAMP_DAYS;
 
-  return grouped_time_range_rolling_window_impl(
+  return grouped_time_range_rolling_window_impl<int64_t>(
     input,
     is_timestamp_in_days
       ? cudf::cast(timestamp_column, cudf::data_type(cudf::type_id::TIMESTAMP_SECONDS), mr)->view()
@@ -856,8 +843,8 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
     timestamp_order,
     group_offsets,
     group_labels,
-    preceding_window_in_days,
-    following_window_in_days,
+    std::move(preceding_window_in_days),
+    std::move(following_window_in_days),
     min_periods,
     aggr,
     stream,
@@ -876,16 +863,16 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                                           std::unique_ptr<aggregation> const& aggr,
                                                           rmm::mr::device_memory_resource* mr)
 {
-  return grouped_time_range_rolling_window(group_keys,
-                                           timestamp_column,
-                                           timestamp_order,
-                                           input,
-                                           window_bounds::get(preceding_window_in_days),
-                                           window_bounds::get(following_window_in_days),
-                                           min_periods,
-                                           aggr,
-                                           rmm::cuda_stream_default,
-                                           mr);
+  return detail::grouped_time_range_rolling_window(group_keys,
+                                                   timestamp_column,
+                                                   timestamp_order,
+                                                   input,
+                                                   detail::range_bounds(duration_scalar<duration_D>{preceding_window_in_days, true}),
+                                                   detail::range_bounds(duration_scalar<duration_D>{following_window_in_days, true}),
+                                                   min_periods,
+                                                   aggr,
+                                                   rmm::cuda_stream_default,
+                                                   mr);
 }
 
 std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& group_keys,
@@ -902,8 +889,12 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                                    timestamp_column,
                                                    timestamp_order,
                                                    input,
-                                                   preceding_window_in_days,
-                                                   following_window_in_days,
+                                                   preceding_window_in_days.is_unbounded
+                                                     ? range_window_bounds::unbounded(data_type{type_id::DURATION_DAYS})
+                                                     : detail::range_bounds(duration_scalar<duration_D>{preceding_window_in_days.value, true}),
+                                                   following_window_in_days.is_unbounded
+                                                     ? range_window_bounds::unbounded(data_type{type_id::DURATION_DAYS})
+                                                     : detail::range_bounds(duration_scalar<duration_D>{following_window_in_days.value, true}),
                                                    min_periods,
                                                    aggr,
                                                    rmm::cuda_stream_default,
