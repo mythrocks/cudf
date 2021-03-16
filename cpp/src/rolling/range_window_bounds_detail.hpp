@@ -24,7 +24,8 @@ namespace detail {
 template <typename RangeType>
 constexpr bool is_supported_range_type()
 {
-    return cudf::is_duration<RangeType>();
+    return cudf::is_duration<RangeType>()
+        || (std::is_integral<RangeType>::value && !cudf::is_boolean<RangeType>());
 }
 
 template <typename ColumnType>
@@ -48,6 +49,13 @@ struct is_range_scalable<From, // Range Type.
     static constexpr bool value = cuda::std::ratio_less_equal<destination_period, source_period>::value;
 };
 
+template <typename From>
+struct is_range_scalable<From,
+                         From,
+                         std::enable_if_t< std::is_integral<From>::value
+                                        && !cudf::is_boolean<From>(), void>>
+: std::true_type{};
+
 template <typename OrderByColumnType>
 struct range_scaler // A scalar_scaler, if you will.
 {
@@ -65,7 +73,7 @@ struct range_scaler // A scalar_scaler, if you will.
                             && is_range_scalable<RangeType, OrderByColumnType>::value, void> * = nullptr>
   std::unique_ptr<scalar> operator()(scalar const& range_scalar,
                                      bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
+                                     rmm::cuda_stream_view stream, // TODO: Why are stream and mr required?
                                      rmm::mr::device_memory_resource* mr) const
   {
     using order_by_column_duration_t = typename OrderByColumnType::duration;
@@ -76,8 +84,26 @@ struct range_scaler // A scalar_scaler, if you will.
              new cudf::duration_scalar<order_by_column_duration_t>{
                  is_unbounded_range
                    ? order_by_column_duration_t{std::numeric_limits<rep_t>::max()} 
-                   : order_by_column_duration_t{range_scalar_duration.value()},
+                   : order_by_column_duration_t{range_scalar_duration.value(stream)},
                  true}};
+  }
+
+  template <typename RangeType,
+            std::enable_if_t<  std::is_same<OrderByColumnType, RangeType>::value
+                            && std::is_integral<RangeType>::value
+                            && !cudf::is_boolean<RangeType>(), void> * = nullptr>
+  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
+                                     bool is_unbounded_range,
+                                     rmm::cuda_stream_view stream,
+                                     rmm::mr::device_memory_resource* mr) const
+  {
+    using numeric_scalar = cudf::numeric_scalar<RangeType>;
+
+    return std::unique_ptr<scalar>{new numeric_scalar {
+      is_unbounded_range
+        ? std::numeric_limits<RangeType>::max()
+        : static_cast<numeric_scalar const&>(range_scalar).value(stream)
+    }};
   }
 };
 
@@ -87,12 +113,19 @@ template <typename RepType>
 struct range_comparable_value_fetcher
 {
     template <typename RangeType, typename... Args>
-    std::enable_if_t< !cudf::detail::is_supported_range_type<RangeType>(), RepType >
+    std::enable_if_t< !is_supported_range_type<RangeType>(), RepType >
     operator()(Args&&...) const 
     {
         CUDF_FAIL("Unsupported window range type!");
     }
 
+    template <typename RangeType>
+    std::enable_if_t< std::is_integral<RangeType>::value && !cudf::is_boolean<RangeType>(), RepType >
+    operator()(scalar const& range_scalar) const
+    {
+        return static_cast<numeric_scalar<RangeType>const&>(range_scalar).value();
+    }    
+    
     template <typename RangeType>
     std::enable_if_t< cudf::is_duration<RangeType>(), RepType >
     operator()(scalar const& range_scalar) const
@@ -121,13 +154,13 @@ RepType range_comparable_value(range_window_bounds const& range_bounds)
     CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 
                     "Data type of window range scalar does not match output type.");
     return cudf::type_dispatcher(range_scalar.type(),
-                                    range_comparable_value_fetcher<RepType>{},
-                                    range_scalar);
+                                 range_comparable_value_fetcher<RepType>{},
+                                 range_scalar);
 }
 
 template <typename ScalarType, 
           typename value_type = typename ScalarType::value_type,
-          std::enable_if_t< cudf::is_duration<value_type>(), void >* = nullptr>
+          std::enable_if_t<  is_supported_range_type<value_type>(), void >* = nullptr>
 auto range_bounds(ScalarType const& scalar)
 {
     return range_window_bounds::get(std::unique_ptr<ScalarType>{new ScalarType{scalar}});

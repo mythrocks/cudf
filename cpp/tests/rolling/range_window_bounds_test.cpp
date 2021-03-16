@@ -1,6 +1,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/cudf_gtest.hpp>
+#include <cudf_test/type_lists.hpp>
 
 #include <thrust/iterator/constant_iterator.h>
 
@@ -65,6 +66,26 @@ TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
       auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
       EXPECT_THROW(range_comparable_value<int64_t>(range_3_days), cudf::logic_error);
     }
+}
+
+template<typename T>
+struct TypedRangeWindowBoundsTest : RangeWindowBoundsTest 
+{};
+
+using TypesForTest = cudf::test::IntegralTypesNotBool;
+
+TYPED_TEST_CASE(TypedRangeWindowBoundsTest, TypesForTest);
+
+TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
+{
+    using namespace cudf;
+    using namespace cudf::detail;
+
+    using T = TypeParam;
+
+    auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
+    numeric_bounds.scale_to(data_type{type_to_id<T>()});
+    std::cout << "Scaled integer: " << range_comparable_value<T>(numeric_bounds) << std::endl;
 }
  
 } // namespace test;
