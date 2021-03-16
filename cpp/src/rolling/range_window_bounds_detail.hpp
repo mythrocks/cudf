@@ -43,10 +43,10 @@ struct is_range_scalable<From, // Range Type.
                          std::enable_if_t<    cudf::is_duration<From>() 
                                            && cudf::is_timestamp<To>(), void >> 
 {
-    using destination_duration = typename To::duration;
-    using destination_period   = typename destination_duration::period;
-    using source_period        = typename From::period;
-    static constexpr bool value = cuda::std::ratio_less_equal<destination_period, source_period>::value;
+    using to_duration = typename To::duration;
+    using to_period   = typename to_duration::period;
+    using from_period = typename From::period;
+    static constexpr bool value = cuda::std::ratio_less_equal<to_period, from_period>::value;
 };
 
 template <typename From>
@@ -73,7 +73,7 @@ struct range_scaler // A scalar_scaler, if you will.
                             && is_range_scalable<RangeType, OrderByColumnType>::value, void> * = nullptr>
   std::unique_ptr<scalar> operator()(scalar const& range_scalar,
                                      bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream, // TODO: Why are stream and mr required?
+                                     rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr) const
   {
     using order_by_column_duration_t = typename OrderByColumnType::duration;
@@ -85,7 +85,9 @@ struct range_scaler // A scalar_scaler, if you will.
                  is_unbounded_range
                    ? order_by_column_duration_t{std::numeric_limits<rep_t>::max()} 
                    : order_by_column_duration_t{range_scalar_duration.value(stream)},
-                 true}};
+                 true,
+                 stream,
+                 mr}};
   }
 
   template <typename RangeType,
@@ -102,8 +104,10 @@ struct range_scaler // A scalar_scaler, if you will.
     return std::unique_ptr<scalar>{new numeric_scalar {
       is_unbounded_range
         ? std::numeric_limits<RangeType>::max()
-        : static_cast<numeric_scalar const&>(range_scalar).value(stream)
-    }};
+        : static_cast<numeric_scalar const&>(range_scalar).value(stream),
+      true,
+      stream,
+      mr}};
   }
 };
 
@@ -121,16 +125,16 @@ struct range_comparable_value_fetcher
 
     template <typename RangeType>
     std::enable_if_t< std::is_integral<RangeType>::value && !cudf::is_boolean<RangeType>(), RepType >
-    operator()(scalar const& range_scalar) const
+    operator()(scalar const& range_scalar, rmm::cuda_stream_view stream) const
     {
-        return static_cast<numeric_scalar<RangeType>const&>(range_scalar).value();
+        return static_cast<numeric_scalar<RangeType>const&>(range_scalar).value(stream);
     }    
     
     template <typename RangeType>
     std::enable_if_t< cudf::is_duration<RangeType>(), RepType >
-    operator()(scalar const& range_scalar) const
+    operator()(scalar const& range_scalar, rmm::cuda_stream_view stream) const
     {
-        return static_cast<duration_scalar<RangeType>const&>(range_scalar).value().count();
+        return static_cast<duration_scalar<RangeType>const&>(range_scalar).value(stream).count();
     }
 };
 
@@ -148,14 +152,16 @@ bool rep_type_compatible_for_range_comparison(type_id id)
 } // namespace <unnamed>;
 
 template <typename RepType>
-RepType range_comparable_value(range_window_bounds const& range_bounds)
+RepType range_comparable_value(range_window_bounds const& range_bounds,
+                               rmm::cuda_stream_view stream = rmm::cuda_stream_default)
 {
     auto const& range_scalar = range_bounds.range_scalar();
     CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 
                     "Data type of window range scalar does not match output type.");
     return cudf::type_dispatcher(range_scalar.type(),
                                  range_comparable_value_fetcher<RepType>{},
-                                 range_scalar);
+                                 range_scalar,
+                                 stream);
 }
 
 template <typename ScalarType, 
