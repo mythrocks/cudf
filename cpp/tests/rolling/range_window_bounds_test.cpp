@@ -1,9 +1,11 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
+#include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 #include <cudf_test/type_lists.hpp>
 
 #include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/counting_iterator.h>
 
 #include <chrono>
 #include <cuda/std/ratio>
@@ -83,9 +85,31 @@ TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
 
     using T = TypeParam;
 
-    auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
-    numeric_bounds.scale_to(data_type{type_to_id<T>()});
-    std::cout << "Scaled integer: " << range_comparable_value<T>(numeric_bounds) << std::endl;
+    {
+      auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
+      numeric_bounds.scale_to(data_type{type_to_id<T>()});
+      EXPECT_EQ(range_comparable_value<T>(numeric_bounds), T{3});
+    }
+
+    {
+      auto unbounded = range_window_bounds::unbounded(data_type{type_to_id<T>()});
+      unbounded.scale_to(data_type{type_to_id<T>()});
+      EXPECT_EQ(range_comparable_value<T>(unbounded), std::numeric_limits<T>::max());
+    }
+
+    {
+      // Negative tests.
+      auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
+
+      std::for_each(thrust::make_counting_iterator(1),
+                    thrust::make_counting_iterator<int32_t>(static_cast<int>(type_id::NUM_TYPE_IDS)),
+                    [&numeric_bounds](auto i) { 
+                      auto id = static_cast<type_id>(i);
+                      if (type_to_id<T>() != id) {
+                        EXPECT_THROW(numeric_bounds.scale_to(data_type{id}), cudf::logic_error);
+                      }
+                    });
+    }
 }
  
 } // namespace test;
