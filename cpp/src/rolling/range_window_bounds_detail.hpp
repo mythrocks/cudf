@@ -31,7 +31,9 @@ constexpr bool is_supported_range_type()
 template <typename ColumnType>
 constexpr bool is_supported_order_by_column_type()
 {
-    return cudf::is_timestamp<ColumnType>();
+    return cudf::is_timestamp<ColumnType>()
+        || (std::is_integral<ColumnType>::value && !cudf::is_boolean<ColumnType>());
+    ;
 }
 
 template <typename From, typename To, typename = void>

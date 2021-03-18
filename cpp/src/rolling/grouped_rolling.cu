@@ -831,6 +831,14 @@ struct dispatch_grouped_range_rolling_window
   {
     return grouped_range_rolling_window_impl<int64_t>(std::forward<Args>(args)...);
   }
+
+  template <typename OrderByColumnType, typename... Args>
+  std::enable_if_t< std::is_integral<OrderByColumnType>() &&
+                    !cudf::is_boolean<OrderByColumnType>(),
+    std::unique_ptr<column> > operator()(Args&&... args)
+  {
+    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
+  }
 };
 
 }  // namespace
@@ -934,7 +942,6 @@ std::unique_ptr<column> grouped_time_range_rolling_window(table_view const& grou
                                                    mr);
 }
 
-/* TODO:
 std::unique_ptr<column> grouped_range_rolling_window(
   table_view const& group_keys,
   column_view const& timestamp_column,
@@ -946,8 +953,16 @@ std::unique_ptr<column> grouped_range_rolling_window(
   std::unique_ptr<aggregation> const& aggr,
   rmm::mr::device_memory_resource* mr)
 {
-
+  return detail::grouped_time_range_rolling_window(group_keys,
+                                                   timestamp_column,
+                                                   timestamp_order,
+                                                   input,
+                                                   std::move(preceding),
+                                                   std::move(following),
+                                                   min_periods,
+                                                   aggr,
+                                                   rmm::cuda_stream_default,
+                                                   mr);
 }
-*/
 
 }  // namespace cudf
