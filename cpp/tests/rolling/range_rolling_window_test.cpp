@@ -198,15 +198,6 @@ TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampDESCNullsFirst)
                                                               cudf::make_count_aggregation());
 
 
-  /*
-  std::cout << "Test subtraction: T{0} - T{1} == " << (T{0} - T{1}) << std::endl;
-  std::cout << "Numeric limits for unsigned: min == " << std::numeric_limits<T>::min() << " max == " << std::numeric_limits<T>::max() << std::endl;
-  std::cout << "Prev: " << std::endl;
-  std::cout << "1,2,3,4,1,2,2,2,2,2" << std::endl;
-  std::cout << "Foll: " << std::endl;
-  print(output->view());
-  */
-
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {4, 4, 4, 4, 1, 2, 2, 3, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});

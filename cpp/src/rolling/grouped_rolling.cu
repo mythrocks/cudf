@@ -404,38 +404,40 @@ get_null_bounds_for_timestamp_column(column_view const& timestamp_column,
   return std::make_tuple(std::move(null_start), std::move(null_end));
 }
 
-template <typename T,
-          std::enable_if_t< std::numeric_limits<T>::is_signed, void>* = nullptr>
-__device__ bool is_non_negative(T const& value)
+template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T add_and_check_overflow(T const& value, T const& delta)
 {
-  return value >= T{0};
+  // delta >= 0.
+  return (value < 0 || (std::numeric_limits<T>::max() - value) >= delta)
+        ? (value + delta)
+        : std::numeric_limits<T>::max();
 }
 
-template <typename T,
-          std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
-__device__ bool is_non_negative(T const&)
+template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T add_and_check_overflow(T const& value, T const& delta)
 {
-  return true;
+  // delta >= 0.
+  return ((std::numeric_limits<T>::max() - value) >= delta)
+        ? (value + delta)
+        : std::numeric_limits<T>::max();
 }
 
-template <typename T>
-__device__ T add_and_check_overflow(T value, T delta)
+template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T subtract_and_check_underflow(T const& value, T const& delta)
 {
-  // `delta` >= 0.
-  // return ((std::numeric_limits<T>::is_signed && value < 0) || (std::numeric_limits<T>::max() - value) > delta)
-  return (!is_non_negative(value) || (std::numeric_limits<T>::max() - value) > delta)
-         ? (value + delta)
-         : std::numeric_limits<T>::max();
+  // delta >= 0;
+  return (value >= 0 || (value - std::numeric_limits<T>::min()) >= delta)
+        ? (value - delta)
+        : std::numeric_limits<T>::min();
 }
 
-template <typename T>
-__device__ T subtract_and_check_underflow(T value, T delta)
+template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T subtract_and_check_underflow(T const& value, T const& delta)
 {
-  // `delta` >= 0.
-  return ((std::numeric_limits<T>::is_signed && value >= 0) || (value - std::numeric_limits<T>::min()) > delta)
-  // return (is_non_negative(value) || (value - std::numeric_limits<T>::min()) > delta)
-         ? (value - delta)
-         : std::numeric_limits<T>::min();
+  // delta >= 0;
+  return ((value - std::numeric_limits<T>::min()) >= delta)
+        ? (value - delta)
+        : std::numeric_limits<T>::min();
 }
 
 // Time-range window computation, for timestamps in ASCENDING order.
