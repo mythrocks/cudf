@@ -151,6 +151,20 @@ bool rep_type_compatible_for_range_comparison(type_id id)
         || type_id_matches_device_storage_type<RepType>(id);
 };
 
+template <typename T, 
+          std::enable_if_t<std::numeric_limits<T>::is_signed, void>* = nullptr>
+void assert_non_negative(T const& value)
+{
+  CUDF_EXPECTS(value >= T{0}, "Range scalar must be >= 0.");
+}
+
+template <typename T, 
+          std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
+void assert_non_negative(T const& value)
+{
+  // Unsigned values are non-negative.
+}
+
 } // namespace <unnamed>;
 
 template <typename RepType>
@@ -160,10 +174,12 @@ RepType range_comparable_value(range_window_bounds const& range_bounds,
     auto const& range_scalar = range_bounds.range_scalar();
     CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()), 
                     "Data type of window range scalar does not match output type.");
-    return cudf::type_dispatcher(range_scalar.type(),
+    auto comparable_value = cudf::type_dispatcher(range_scalar.type(),
                                  range_comparable_value_fetcher<RepType>{},
                                  range_scalar,
                                  stream);
+    assert_non_negative(comparable_value);
+    return comparable_value;
 }
 
 template <typename ScalarType, 

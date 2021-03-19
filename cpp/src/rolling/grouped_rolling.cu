@@ -404,6 +404,40 @@ get_null_bounds_for_timestamp_column(column_view const& timestamp_column,
   return std::make_tuple(std::move(null_start), std::move(null_end));
 }
 
+template <typename T,
+          std::enable_if_t< std::numeric_limits<T>::is_signed, void>* = nullptr>
+__device__ bool is_non_negative(T const& value)
+{
+  return value >= T{0};
+}
+
+template <typename T,
+          std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
+__device__ bool is_non_negative(T const&)
+{
+  return true;
+}
+
+template <typename T>
+__device__ T add_and_check_overflow(T value, T delta)
+{
+  // `delta` >= 0.
+  // return ((std::numeric_limits<T>::is_signed && value < 0) || (std::numeric_limits<T>::max() - value) > delta)
+  return (!is_non_negative(value) || (std::numeric_limits<T>::max() - value) > delta)
+         ? (value + delta)
+         : std::numeric_limits<T>::max();
+}
+
+template <typename T>
+__device__ T subtract_and_check_underflow(T value, T delta)
+{
+  // `delta` >= 0.
+  return ((std::numeric_limits<T>::is_signed && value >= 0) || (value - std::numeric_limits<T>::min()) > delta)
+  // return (is_non_negative(value) || (value - std::numeric_limits<T>::min()) > delta)
+         ? (value - delta)
+         : std::numeric_limits<T>::min();
+}
+
 // Time-range window computation, for timestamps in ASCENDING order.
 template <typename TimeT>
 std::unique_ptr<column> time_range_window_ASC(
@@ -654,7 +688,7 @@ std::unique_ptr<column> time_range_window_DESC(
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
     auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
-    auto highest_timestamp_in_window = d_timestamps[idx] + preceding_window;
+    auto highest_timestamp_in_window = add_and_check_overflow(d_timestamps[idx], preceding_window);
 
     return ((d_timestamps + idx) -
             thrust::lower_bound(thrust::seq,
@@ -697,7 +731,7 @@ std::unique_ptr<column> time_range_window_DESC(
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
     auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
-    auto lowest_timestamp_in_window = d_timestamps[idx] - following_window;
+    auto lowest_timestamp_in_window = subtract_and_check_underflow(d_timestamps[idx], following_window);
 
     return (thrust::upper_bound(thrust::seq,
                                 d_timestamps + idx,

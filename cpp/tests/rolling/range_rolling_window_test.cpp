@@ -173,8 +173,6 @@ TYPED_TEST(TypedRangeRollingTest, CountMultiGroupTimestampASCNullsLast)
                                    {3, 3, 3, 2, 2, 2, 3, 2, 2, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-/* 
-TODO: Investigate: Failing. Possible bug.
 TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampDESCNullsFirst)
 {
   using namespace cudf::test;
@@ -199,12 +197,26 @@ TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampDESCNullsFirst)
                                                               min_periods,
                                                               cudf::make_count_aggregation());
 
+
+  /*
+  std::cout << "Test subtraction: T{0} - T{1} == " << (T{0} - T{1}) << std::endl;
+  std::cout << "Numeric limits for unsigned: min == " << std::numeric_limits<T>::min() << " max == " << std::numeric_limits<T>::max() << std::endl;
+  std::cout << "Prev: " << std::endl;
+  std::cout << "1,2,3,4,1,2,2,2,2,2" << std::endl;
+  std::cout << "Foll: " << std::endl;
+  print(output->view());
+  */
+
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {4, 4, 4, 4, 1, 2, 2, 3, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
-*/
 
+TYPED_TEST(TypedRangeRollingTest, Modulo)
+{
+  std::cout << "is_modulo(" << typeid(TypeParam).name() << ") == " << std::boolalpha << std::numeric_limits<TypeParam>::is_modulo << std::endl;
+  std::cout << "is_signed(" << typeid(TypeParam).name() << ") == " << std::boolalpha << std::numeric_limits<TypeParam>::is_signed << std::endl;
+}
 
 } // namespace test;
 } // namespace cudf;
