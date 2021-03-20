@@ -205,6 +205,42 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
 namespace {
 
+template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T add_and_check_overflow(T const& value, T const& delta)
+{
+  // delta >= 0.
+  return (value < 0 || (std::numeric_limits<T>::max() - value) >= delta)
+        ? (value + delta)
+        : std::numeric_limits<T>::max();
+}
+
+template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T add_and_check_overflow(T const& value, T const& delta)
+{
+  // delta >= 0.
+  return ((std::numeric_limits<T>::max() - value) >= delta)
+        ? (value + delta)
+        : std::numeric_limits<T>::max();
+}
+
+template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T subtract_and_check_underflow(T const& value, T const& delta)
+{
+  // delta >= 0;
+  return (value >= 0 || (value - std::numeric_limits<T>::min()) >= delta)
+        ? (value - delta)
+        : std::numeric_limits<T>::min();
+}
+
+template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
+__device__ T subtract_and_check_underflow(T const& value, T const& delta)
+{
+  // delta >= 0;
+  return ((value - std::numeric_limits<T>::min()) >= delta)
+        ? (value - delta)
+        : std::numeric_limits<T>::min();
+}
+
 /// Given a single, ungrouped timestamp column, return the indices corresponding
 /// to the first null timestamp, and (one past) the last null timestamp.
 /// The input column is sorted, with all null values clustered either
@@ -286,7 +322,7 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
     //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
     // Otherwise, NULLS LAST ordering. Start at 0.
     auto group_start                = nulls_begin_idx == 0 ? nulls_end_idx : 0;
-    auto lowest_timestamp_in_window = d_timestamps[idx] - preceding_window;
+    auto lowest_timestamp_in_window = subtract_and_check_underflow(d_timestamps[idx], preceding_window);
 
     return ((d_timestamps + idx) - thrust::lower_bound(thrust::seq,
                                                        d_timestamps + group_start,
@@ -318,7 +354,7 @@ std::unique_ptr<column> time_range_window_ASC(column_view const& input,
     // Otherwise, NULLS LAST ordering. End at nulls_begin_idx.
 
     auto group_end                   = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
-    auto highest_timestamp_in_window = d_timestamps[idx] + following_window;
+    auto highest_timestamp_in_window = add_and_check_overflow(d_timestamps[idx], following_window);
 
     return (thrust::upper_bound(thrust::seq,
                                 d_timestamps + idx,
@@ -404,42 +440,6 @@ get_null_bounds_for_timestamp_column(column_view const& timestamp_column,
   return std::make_tuple(std::move(null_start), std::move(null_end));
 }
 
-template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
-__device__ T add_and_check_overflow(T const& value, T const& delta)
-{
-  // delta >= 0.
-  return (value < 0 || (std::numeric_limits<T>::max() - value) >= delta)
-        ? (value + delta)
-        : std::numeric_limits<T>::max();
-}
-
-template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
-__device__ T add_and_check_overflow(T const& value, T const& delta)
-{
-  // delta >= 0.
-  return ((std::numeric_limits<T>::max() - value) >= delta)
-        ? (value + delta)
-        : std::numeric_limits<T>::max();
-}
-
-template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed>* = nullptr>
-__device__ T subtract_and_check_underflow(T const& value, T const& delta)
-{
-  // delta >= 0;
-  return (value >= 0 || (value - std::numeric_limits<T>::min()) >= delta)
-        ? (value - delta)
-        : std::numeric_limits<T>::min();
-}
-
-template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed>* = nullptr>
-__device__ T subtract_and_check_underflow(T const& value, T const& delta)
-{
-  // delta >= 0;
-  return ((value - std::numeric_limits<T>::min()) >= delta)
-        ? (value - delta)
-        : std::numeric_limits<T>::min();
-}
-
 // Time-range window computation, for timestamps in ASCENDING order.
 template <typename TimeT>
 std::unique_ptr<column> time_range_window_ASC(
@@ -489,7 +489,7 @@ std::unique_ptr<column> time_range_window_ASC(
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
     auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
-    auto lowest_timestamp_in_window = d_timestamps[idx] - preceding_window;
+    auto lowest_timestamp_in_window = subtract_and_check_underflow(d_timestamps[idx], preceding_window);
 
     return ((d_timestamps + idx) - thrust::lower_bound(thrust::seq,
                                                        d_timestamps + search_start,
@@ -532,7 +532,7 @@ std::unique_ptr<column> time_range_window_ASC(
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
     auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
-    auto highest_timestamp_in_window = d_timestamps[idx] + following_window;
+    auto highest_timestamp_in_window = add_and_check_overflow(d_timestamps[idx], following_window);
 
     return (thrust::upper_bound(thrust::seq,
                                 d_timestamps + idx,
@@ -590,7 +590,7 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
     //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
     // Otherwise, NULLS LAST ordering. Start at 0.
     auto group_start                 = nulls_begin_idx == 0 ? nulls_end_idx : 0;
-    auto highest_timestamp_in_window = d_timestamps[idx] + preceding_window;
+    auto highest_timestamp_in_window = add_and_check_overflow(d_timestamps[idx], preceding_window);
 
     return ((d_timestamps + idx) -
             thrust::lower_bound(thrust::seq,
@@ -624,7 +624,7 @@ std::unique_ptr<column> time_range_window_DESC(column_view const& input,
     // Otherwise, NULLS LAST ordering: End at nulls_begin_idx.
 
     auto group_end                  = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
-    auto lowest_timestamp_in_window = d_timestamps[idx] - following_window;
+    auto lowest_timestamp_in_window = subtract_and_check_underflow(d_timestamps[idx], following_window);
 
     return (thrust::upper_bound(thrust::seq,
                                 d_timestamps + idx,
