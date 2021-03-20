@@ -47,6 +47,27 @@ using TypesUnderTest = IntegralTypesNotBool;
 
 TYPED_TEST_CASE(TypedRangeRollingTest, TypesUnderTest);
 
+template <typename T>
+auto do_count_over_window(cudf::column_view grouping_col,
+                          cudf::column_view order_by,
+                          cudf::order order,
+                          cudf::column_view aggregation_col,
+                          range_window_bounds&& preceding = range_bounds(numeric_scalar<T>{T{1}, true}),
+                          range_window_bounds&& following = range_bounds(numeric_scalar<T>{T{1}, true}))
+{
+  auto const min_periods = size_type{1};
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_col}};
+
+  return cudf::grouped_range_rolling_window(grouping_keys,
+                                            order_by,
+                                            order,
+                                            aggregation_col,
+                                            std::move(preceding),
+                                            std::move(following),
+                                            min_periods,
+                                            cudf::make_count_aggregation());
+}
+
 TYPED_TEST(TypedRangeRollingTest, CountSingleGroupOrderByASCNullsFirst)
 {
   using T = TypeParam;
@@ -60,25 +81,17 @@ TYPED_TEST(TypedRangeRollingTest, CountSingleGroupOrderByASCNullsFirst)
   auto const oby_col = fixed_width_column_wrapper<T>{
     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}};
 
-  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
-  auto const preceding     = T{1};
-  auto const following     = T{1};
-  auto const min_periods   = 1L;
-  auto const output        = cudf::grouped_range_rolling_window(grouping_keys,
-                                                              oby_col,
-                                                              cudf::order::ASCENDING,
-                                                              agg_col,
-                                                              range_bounds(numeric_scalar<T>{preceding, true}),
-                                                              range_bounds(numeric_scalar<T>{following, true}),
-                                                              min_periods,
-                                                              cudf::make_count_aggregation());
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::ASCENDING,
+                                                     agg_col);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {4, 4, 4, 4, 1, 2, 2, 3, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampASCNullsLast)
+TYPED_TEST(TypedRangeRollingTest, CountSingleGroupOrderByASCNullsLast)
 {
   using namespace cudf::test;
   using T = TypeParam;
@@ -93,25 +106,17 @@ TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampASCNullsLast)
   auto const oby_col = fixed_width_column_wrapper<T>{
     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 1, 0, 0, 0, 0}};
 
-  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
-  auto const preceding     = T{1L};
-  auto const following     = T{1L};
-  auto const min_periods   = 1L;
-  auto const output        = cudf::grouped_range_rolling_window(grouping_keys,
-                                                              oby_col,
-                                                              cudf::order::ASCENDING,
-                                                              agg_col,
-                                                              range_bounds(numeric_scalar<T>{preceding, true}),
-                                                              range_bounds(numeric_scalar<T>{following, true}),
-                                                              min_periods,
-                                                              cudf::make_count_aggregation());
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::ASCENDING,
+                                                     agg_col);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {2, 3, 3, 3, 2, 1, 4, 4, 4, 4}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-TYPED_TEST(TypedRangeRollingTest, CountMultiGroupTimestampASCNullsFirst)
+TYPED_TEST(TypedRangeRollingTest, CountMultiGroupOrderByASCNullsFirst)
 {
   using namespace cudf::test;
   using T = TypeParam;
@@ -124,25 +129,17 @@ TYPED_TEST(TypedRangeRollingTest, CountMultiGroupTimestampASCNullsFirst)
   auto const oby_col = fixed_width_column_wrapper<T>{
     {1, 2, 2, 1, 2, 1, 2, 3, 4, 5}, {0, 0, 0, 1, 1, 0, 0, 1, 1, 1}};
 
-  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
-  auto const preceding     = T{1};
-  auto const following     = T{1};
-  auto const min_periods   = 1L;
-  auto const output        = cudf::grouped_range_rolling_window(grouping_keys,
-                                                              oby_col,
-                                                              cudf::order::ASCENDING,
-                                                              agg_col,
-                                                              range_bounds(numeric_scalar<T>{preceding, true}),
-                                                              range_bounds(numeric_scalar<T>{following, true}),
-                                                              min_periods,
-                                                              cudf::make_count_aggregation());
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::ASCENDING,
+                                                     agg_col);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {3, 3, 3, 2, 2, 2, 2, 2, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-TYPED_TEST(TypedRangeRollingTest, CountMultiGroupTimestampASCNullsLast)
+TYPED_TEST(TypedRangeRollingTest, CountMultiGroupOrderByASCNullsLast)
 {
   using namespace cudf::test;
   using T = int32_t;
@@ -155,47 +152,34 @@ TYPED_TEST(TypedRangeRollingTest, CountMultiGroupTimestampASCNullsLast)
   auto const oby_col = fixed_width_column_wrapper<T>{
     {1, 2, 2, 1, 3, 1, 2, 3, 4, 5}, {1, 1, 1, 0, 0, 1, 1, 1, 0, 0}};
 
-  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
-  auto const preceding     = T{1};
-  auto const following     = T{1};
-  auto const min_periods   = 1L;
-  auto const output        = cudf::grouped_range_rolling_window(grouping_keys,
-                                                              oby_col,
-                                                              cudf::order::ASCENDING,
-                                                              agg_col,
-                                                              range_bounds(numeric_scalar<T>{preceding, true}),
-                                                              range_bounds(numeric_scalar<T>{following, true}),
-                                                              min_periods,
-                                                              cudf::make_count_aggregation());
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::ASCENDING,
+                                                     agg_col);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
                                    {3, 3, 3, 2, 2, 2, 3, 2, 2, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampDESCNullsFirst)
+TYPED_TEST(TypedRangeRollingTest, CountSingleGroupOrderByDESCNullsFirst)
 {
   using namespace cudf::test;
   using T = TypeParam;
 
+  // Groupby column.
   auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  // Aggregation column.
   auto const agg_col =
     fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
-  auto const time_col = fixed_width_column_wrapper<T>{
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
     {9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}};
 
-  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grp_col}};
-  auto const preceding     = T{1};
-  auto const following     = T{1};
-  auto const min_periods   = 1L;
-  auto const output        = cudf::grouped_range_rolling_window(grouping_keys,
-                                                              time_col,
-                                                              cudf::order::DESCENDING,
-                                                              agg_col,
-                                                              range_bounds(numeric_scalar<T>{preceding, true}),
-                                                              range_bounds(numeric_scalar<T>{following, true}),
-                                                              min_periods,
-                                                              cudf::make_count_aggregation());
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::DESCENDING,
+                                                     agg_col);;
 
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
@@ -203,10 +187,171 @@ TYPED_TEST(TypedRangeRollingTest, CountSingleGroupTimestampDESCNullsFirst)
                                    {4, 4, 4, 4, 1, 2, 2, 3, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
-TYPED_TEST(TypedRangeRollingTest, Modulo)
+TYPED_TEST(TypedRangeRollingTest, CountSingleGroupOrderByDESCNullsLast)
 {
-  std::cout << "is_modulo(" << typeid(TypeParam).name() << ") == " << std::boolalpha << std::numeric_limits<TypeParam>::is_modulo << std::endl;
-  std::cout << "is_signed(" << typeid(TypeParam).name() << ") == " << std::boolalpha << std::numeric_limits<TypeParam>::is_signed << std::endl;
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  // Groupby column.
+  auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  // Aggregation column.
+  auto const agg_col =
+    fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
+
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, {1, 1, 1, 1, 1, 1, 0, 0, 0, 0}};
+
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::DESCENDING,
+                                                     agg_col);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {2, 3, 3, 3, 2, 1, 4, 4, 4, 4}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, CountMultiGroupOrderByDESCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  // Groupby column.
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  // Aggregation column.
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {4, 3, 2, 1, 0, 9, 8, 7, 6, 5}, {0, 0, 0, 1, 1, 0, 0, 1, 1, 1}};
+
+  auto const output        = do_count_over_window<T>(grp_col,
+                                                     oby_col,
+                                                     cudf::order::DESCENDING,
+                                                     agg_col);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {3, 3, 3, 2, 2, 2, 2, 2, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, CountMultiGroupOrderByDESCNullsLast)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  // Groupby column.
+  auto const grp_col  = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  // Aggregation column.
+  auto const agg_col  = fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {4, 3, 2, 1, 0, 9, 8, 7, 6, 5}, {1, 1, 1, 0, 0, 1, 1, 1, 0, 0}};
+
+  auto const output  = do_count_over_window<T>(grp_col,
+                                               oby_col,
+                                               cudf::order::DESCENDING,
+                                               agg_col);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {2, 3, 2, 2, 2, 2, 3, 2, 2, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, CountSingleGroupAllNullOrderBys)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  // Groupby column.
+  auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  // Aggregation column.
+  auto const agg_col =
+    fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
+
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+
+  auto const output  = do_count_over_window<T>(grp_col,
+                                               oby_col,
+                                               cudf::order::ASCENDING,
+                                               agg_col);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {9, 9, 9, 9, 9, 9, 9, 9, 9, 9}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, CountMultiGroupAllNullOrderBys)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  // Groupby column.
+  auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  // Aggregation column.
+  auto const agg_col =
+    fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
+
+  // OrderBy column.
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 0, 0, 0, 0}};
+
+  auto const output  = do_count_over_window<T>(grp_col,
+                                               oby_col,
+                                               cudf::order::ASCENDING,
+                                               agg_col);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {2, 3, 3, 3, 2, 4, 4, 4, 4, 4}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, UnboundedPrecedingWindowSingleGroupOrderByASCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col =
+    fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}};
+
+  auto const output  = do_count_over_window<T>(grp_col,
+                                               oby_col,
+                                               cudf::order::ASCENDING,
+                                               agg_col,
+                                               range_window_bounds::unbounded(data_type{type_to_id<T>()}),
+                                               range_bounds(numeric_scalar<T>{1, true}));
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {4, 4, 4, 4, 5, 6, 7, 8, 9, 9}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+}
+
+TYPED_TEST(TypedRangeRollingTest, UnboundedFollowingWindowSingleGroupOrderByASCNullsFirst)
+{
+  using namespace cudf::test;
+  using T = TypeParam;
+
+  auto const grp_col = fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  auto const agg_col =
+    fixed_width_column_wrapper<T>{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 1, 1, 1, 1, 0, 1, 1, 1, 1}};
+  auto const oby_col = fixed_width_column_wrapper<T>{
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {0, 0, 0, 0, 1, 1, 1, 1, 1, 1}};
+
+  auto const output  = do_count_over_window<T>(grp_col,
+                                               oby_col,
+                                               cudf::order::ASCENDING,
+                                               agg_col,
+                                               range_bounds(numeric_scalar<T>{1, true}),
+                                               range_window_bounds::unbounded(data_type{type_to_id<T>()}));
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
+                                 fixed_width_column_wrapper<cudf::size_type>{
+                                   {9, 9, 9, 9, 5, 5, 4, 4, 3, 2}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
 }
 
 } // namespace test;
