@@ -23,34 +23,30 @@
 namespace cudf {
 namespace {
 
-struct type_deducing_range_scaler {
-  template <typename OrderByColumnType>
-  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
-                                     bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
+struct range_scalar_constructor
+{
+  template <typename T, std::enable_if_t<!detail::is_supported_range_type<T>(), void>* = nullptr>
+  scalar* operator()(scalar const& range_scalar_) const
   {
-    return cudf::type_dispatcher(range_scalar.type(),
-                                 cudf::detail::range_scaler<OrderByColumnType>{},
-                                 range_scalar,
-                                 is_unbounded_range,
-                                 stream,
-                                 mr);
+    CUDF_FAIL("Unsupported range type. " 
+              "Only Durations and non-boolean integral range types are allowed.");
+  }
+
+  template <typename T, std::enable_if_t<cudf::is_duration<T>(), void>* = nullptr>
+  scalar* operator()(scalar const& range_scalar_) const
+  {
+    return new duration_scalar<T>{static_cast<duration_scalar<T> const&>(range_scalar_)};
+  }
+
+  template <typename T, 
+            std::enable_if_t<std::is_integral<T>::value && !cudf::is_boolean<T>(), void>* = nullptr>
+  scalar* operator()(scalar const& range_scalar_) const
+  {
+    return new numeric_scalar<T>{static_cast<numeric_scalar<T> const&>(range_scalar_)};
   }
 };
 
 }  // namespace
-
-void range_window_bounds::scale_to(data_type target_type,
-                                   rmm::cuda_stream_view stream,
-                                   rmm::mr::device_memory_resource* mr)
-{
-  scalar const& range_scalar = *_range_scalar;
-
-  _range_scalar = cudf::type_dispatcher(
-    target_type, type_deducing_range_scaler{}, range_scalar, _is_unbounded, stream, mr);
-  assert_invariants();
-}
 
 void range_window_bounds::assert_invariants() const
 {
@@ -61,7 +57,15 @@ void range_window_bounds::assert_invariants() const
 
 range_window_bounds range_window_bounds::unbounded(data_type type)
 {
-  return range_window_bounds(true, make_default_constructed_scalar(type));
+  return range_window_bounds(true, make_default_constructed_scalar(type).release());
+}
+
+range_window_bounds range_window_bounds::get(scalar const& scalar_)
+{
+  return range_window_bounds{false, 
+                             cudf::type_dispatcher(scalar_.type(),
+                                                   range_scalar_constructor{},
+                                                   scalar_)};
 }
 
 }  // namespace cudf

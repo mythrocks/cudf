@@ -34,8 +34,6 @@
 #include <algorithm>
 #include <vector>
 
-using cudf::detail::range_bounds;
-
 namespace cudf {
 namespace test {
 
@@ -48,16 +46,7 @@ using size_col = fwcw<cudf::size_type>;
 template <typename T, typename R = typename T::rep>
 using time_col = fwcw<T, R>;
 
-using days_col = time_col<cudf::timestamp_D>;
-
 using lists_col = lists_column_wrapper<int32_t>;
-
-template <typename T>
-duration_scalar<T> scale_days_to(cudf::duration_D::rep days)
-{
-  auto days_scalar = duration_scalar<cudf::duration_D>{days, true};
-  return duration_scalar<T>(days_scalar.value(), true);
-}
 
 template <typename ScalarT>
 struct window_exec_impl {
@@ -89,8 +78,8 @@ struct window_exec_impl {
                                               oby_column,
                                               order,
                                               agg_column,
-                                              range_bounds(preceding),
-                                              range_bounds(following),
+                                              range_window_bounds::get(preceding),
+                                              range_window_bounds::get(following),
                                               min_periods,
                                               agg);
   }
@@ -126,7 +115,7 @@ template <typename T>
 struct TypedTimeRangeRollingTest : RangeRollingTest {
 };
 
-TYPED_TEST_CASE(TypedTimeRangeRollingTest, cudf::test::DurationTypes);
+TYPED_TEST_CASE(TypedTimeRangeRollingTest, cudf::test::TimestampTypes);
 
 template <typename WindowExecT>
 void verify_results_for_ascending(WindowExecT exec)
@@ -151,7 +140,7 @@ void verify_results_for_ascending(WindowExecT exec)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(
     exec(make_mean_aggregation())->view(),
     fwcw<double>{{0.0, 6.0, 6.0, 4.0, 4.0, 17.0 / 3, 17.0 / 3, 4.5, 4.5, 1.0}, last_invalid});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_aggregation())->view(),
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_list_aggregation())->view(),
                                       lists_col{{{0},
                                                  {8, 4},
                                                  {8, 4},
@@ -163,41 +152,44 @@ void verify_results_for_ascending(WindowExecT exec)
                                                  {9, 3, 5, 1},
                                                  {{0}, all_invalid}},
                                                 all_valid});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_aggregation(null_policy::EXCLUDE))->view(),
-                                      lists_col{{{0},
-                                                 {8, 4},
-                                                 {8, 4},
-                                                 {4, 6, 2},
-                                                 {6, 2},
-                                                 {9, 3, 5},
-                                                 {9, 3, 5},
-                                                 {9, 3, 5, 1},
-                                                 {9, 3, 5, 1},
-                                                 {}},
-                                                all_valid});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+    exec(make_collect_list_aggregation(null_policy::EXCLUDE))->view(),
+    lists_col{{{0},
+               {8, 4},
+               {8, 4},
+               {4, 6, 2},
+               {6, 2},
+               {9, 3, 5},
+               {9, 3, 5},
+               {9, 3, 5, 1},
+               {9, 3, 5, 1},
+               {}},
+              all_valid});
 }
 
-TYPED_TEST(TypedTimeRangeRollingTest, TimeScalingASC)
+TYPED_TEST(TypedTimeRangeRollingTest, TimestampASC)
 {
-  // Confirm that lower resolution durations can be used as window bounds
-  // for higher resolution timestamps.
+  // Confirm that timestamp columns can be used in range queries
+  // at all resolutions, given the right duration column type.
+
   using namespace cudf;
-  using DurationT = TypeParam;
+  using TimeT     = TypeParam;
+  using DurationT = cudf::detail::range_type<TimeT>;
+  using time_col  = fwcw<TimeT>;
 
   // clang-format off
   auto gby_column  = int_col { 0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
   auto agg_column  = int_col {{0, 8, 4, 6, 2, 9, 3, 5, 1, 7},
                               {1, 1, 1, 1, 1, 1, 1, 1, 1, 0}};
-  auto days_column = days_col{ 1, 5, 6, 8, 9, 2, 2, 3, 4, 9};
-  auto nano_column = cudf::cast(days_column, data_type{type_id::TIMESTAMP_NANOSECONDS});
+  auto time_column = time_col{ 1, 5, 6, 8, 9, 2, 2, 3, 4, 9};
   // clang-format on
 
   auto exec = window_exec(gby_column,
-                          nano_column->view(),
+                          time_column,
                           order::ASCENDING,
                           agg_column,
-                          scale_days_to<DurationT>(2),   // 2 days preceding.
-                          scale_days_to<DurationT>(1));  // 1 day following.
+                          duration_scalar<DurationT>{DurationT{2}, true},   // 2 "durations" preceding.
+                          duration_scalar<DurationT>{DurationT{1}, true});  // 1 "durations" following.
 
   verify_results_for_ascending(exec);
 }
@@ -224,7 +216,7 @@ void verify_results_for_descending(WindowExecT exec)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(
     exec(make_mean_aggregation())->view(),
     fwcw<double>{{1.0, 4.5, 4.5, 17.0 / 3, 17.0 / 3, 4.0, 4.0, 6.0, 6.0, 0.0}, first_invalid});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_aggregation())->view(),
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_list_aggregation())->view(),
                                       lists_col{{{{0}, all_invalid},
                                                  {1, 5, 3, 9},
                                                  {1, 5, 3, 9},
@@ -236,41 +228,43 @@ void verify_results_for_descending(WindowExecT exec)
                                                  {4, 8},
                                                  {0}},
                                                 all_valid});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(exec(make_collect_aggregation(null_policy::EXCLUDE))->view(),
-                                      lists_col{{{},
-                                                 {1, 5, 3, 9},
-                                                 {1, 5, 3, 9},
-                                                 {5, 3, 9},
-                                                 {5, 3, 9},
-                                                 {2, 6},
-                                                 {2, 6, 4},
-                                                 {4, 8},
-                                                 {4, 8},
-                                                 {0}},
-                                                all_valid});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+    exec(make_collect_list_aggregation(null_policy::EXCLUDE))->view(),
+    lists_col{{{},
+               {1, 5, 3, 9},
+               {1, 5, 3, 9},
+               {5, 3, 9},
+               {5, 3, 9},
+               {2, 6},
+               {2, 6, 4},
+               {4, 8},
+               {4, 8},
+               {0}},
+              all_valid});
 }
 
-TYPED_TEST(TypedTimeRangeRollingTest, TimeScalingDESC)
+TYPED_TEST(TypedTimeRangeRollingTest, TimestampDESC)
 {
-  // Confirm that lower resolution durations can be used as window bounds
-  // for higher resolution timestamps.
+  // Confirm that timestamp columns can be used in range queries
+  // at all resolutions, given the right duration column type.
   using namespace cudf;
-  using DurationT = TypeParam;
+  using TimeT     = TypeParam;
+  using DurationT = cudf::detail::range_type<TimeT>;
+  using time_col  = fwcw<TimeT>;
 
   // clang-format off
   auto gby_column  = int_col { 5, 5, 5, 5, 5, 1, 1, 1, 1, 1};
   auto agg_column  = int_col {{7, 1, 5, 3, 9, 2, 6, 4, 8, 0},
                               {0, 1, 1, 1, 1, 1, 1, 1, 1, 1}};
-  auto days_column = days_col{ 9, 4, 3, 2, 2, 9, 8, 6, 5, 1};
-  auto nano_column = cudf::cast(days_column, data_type{type_id::TIMESTAMP_NANOSECONDS});
+  auto time_column = time_col{ 9, 4, 3, 2, 2, 9, 8, 6, 5, 1};
   // clang-format on
 
   auto exec = window_exec(gby_column,
-                          nano_column->view(),
+                          time_column,
                           order::DESCENDING,
                           agg_column,
-                          scale_days_to<DurationT>(1),   // 1 day preceding.
-                          scale_days_to<DurationT>(2));  // 2 days following.
+                          duration_scalar<DurationT>{DurationT{1}, true},   // 1 "durations" preceding.
+                          duration_scalar<DurationT>{DurationT{2}, true});  // 2 "durations" following.
 
   verify_results_for_descending(exec);
 }
@@ -343,8 +337,8 @@ auto do_count_over_window(
   cudf::column_view order_by,
   cudf::order order,
   cudf::column_view aggregation_col,
-  range_window_bounds&& preceding = range_bounds(numeric_scalar<T>{T{1}, true}),
-  range_window_bounds&& following = range_bounds(numeric_scalar<T>{T{1}, true}))
+  range_window_bounds&& preceding = range_window_bounds::get(numeric_scalar<T>{T{1}, true}),
+  range_window_bounds&& following = range_window_bounds::get(numeric_scalar<T>{T{1}, true}))
 {
   auto const min_periods   = size_type{1};
   auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_col}};
@@ -586,7 +580,7 @@ TYPED_TEST(TypedRangeRollingNullsTest, UnboundedPrecedingWindowSingleGroupOrderB
                             cudf::order::ASCENDING,
                             agg_col,
                             range_window_bounds::unbounded(data_type{type_to_id<T>()}),
-                            range_bounds(numeric_scalar<T>{1, true}));
+                            range_window_bounds::get(numeric_scalar<T>{1, true}));
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  fixed_width_column_wrapper<cudf::size_type>{
@@ -609,7 +603,7 @@ TYPED_TEST(TypedRangeRollingNullsTest, UnboundedFollowingWindowSingleGroupOrderB
                             oby_col,
                             cudf::order::ASCENDING,
                             agg_col,
-                            range_bounds(numeric_scalar<T>{1, true}),
+                            range_window_bounds::get(numeric_scalar<T>{1, true}),
                             range_window_bounds::unbounded(data_type{type_to_id<T>()}));
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),

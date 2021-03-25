@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2021, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
@@ -20,92 +36,119 @@ namespace test {
 struct RangeWindowBoundsTest : public BaseFixture {
 };
 
-TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
+template <typename Timestamp>
+struct TimestampRangeWindowBoundsTest : RangeWindowBoundsTest {
+};
+
+TYPED_TEST_CASE(TimestampRangeWindowBoundsTest, cudf::test::TimestampTypes);
+
+TEST_F(RangeWindowBoundsTest, TestBasicTimestampRangeTypeMapping)
 {
-  using namespace cudf;
+  // Explicitly check that the programmatic mapping of orderby column types
+  // to their respective range and range_rep types is accurate.
+
   using namespace cudf::detail;
 
-  {
-    // Test that range_window_bounds specified in Days can be scaled down to seconds, milliseconds,
-    // etc.
-    auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
-    EXPECT_TRUE(range_3_days.range_scalar().is_valid());
-    EXPECT_TRUE(!range_3_days.is_unbounded());
+  static_assert( std::is_same< range_type<timestamp_D >, duration_D >::value );
+  static_assert( std::is_same< range_type<timestamp_s >, duration_s >::value );
+  static_assert( std::is_same< range_type<timestamp_ms>, duration_ms>::value );
+  static_assert( std::is_same< range_type<timestamp_us>, duration_us>::value );
+  static_assert( std::is_same< range_type<timestamp_ns>, duration_ns>::value );
 
-    range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-    EXPECT_EQ(range_comparable_value<int64_t>(range_3_days), 3 * 24 * 60 * 60);
+  static_assert( std::is_same< range_rep_type<timestamp_D >, int32_t>::value );
+  static_assert( std::is_same< range_rep_type<timestamp_s >, int64_t>::value );
+  static_assert( std::is_same< range_rep_type<timestamp_ms>, int64_t>::value );
+  static_assert( std::is_same< range_rep_type<timestamp_us>, int64_t>::value );
+  static_assert( std::is_same< range_rep_type<timestamp_ns>, int64_t>::value );
+}
 
-    // Unchanged.
-    range_3_days.scale_to(data_type{type_id::TIMESTAMP_SECONDS});
-    EXPECT_EQ(range_comparable_value<int64_t>(range_3_days), 3 * 24 * 60 * 60);
+TYPED_TEST(TimestampRangeWindowBoundsTest, BoundsConstruction)
+{
+  using OrderByType = TypeParam;
+  using range_type = cudf::detail::range_type<OrderByType>;
+  using rep_type = cudf::detail::range_rep_type<OrderByType>;
 
-    // Finer.
-    range_3_days.scale_to(data_type{type_id::TIMESTAMP_MILLISECONDS});
-    EXPECT_EQ(range_comparable_value<int64_t>(range_3_days), 3 * 24 * 60 * 60 * 1000);
+  using range_window_bounds = cudf::range_window_bounds;
 
-    // Finer.
-    range_3_days.scale_to(data_type{type_id::TIMESTAMP_MICROSECONDS});
-    EXPECT_EQ(range_comparable_value<int64_t>(range_3_days),
-              int64_t{3} * 24 * 60 * 60 * 1000 * 1000);
+  static_assert(cudf::is_duration<range_type>());
+  auto range_3 = range_window_bounds::get(duration_scalar<range_type>{3, true});
+  EXPECT_FALSE(range_3.is_unbounded() 
+               && "range_window_bounds constructed from scalar cannot be unbounded.");
+  EXPECT_EQ(cudf::detail::range_comparable_value<OrderByType>(range_3), rep_type{3});
 
-    // Scale back up to days. Should fail because of loss of precision.
-    EXPECT_THROW(range_3_days.scale_to(data_type{type_id::TIMESTAMP_DAYS}), cudf::logic_error);
-  }
+  auto range_unbounded = range_window_bounds::unbounded(data_type{type_to_id<range_type>()});
+  EXPECT_TRUE(range_unbounded.is_unbounded() 
+              && "range_window_bounds::unbounded() must return an unbounded range.");
+  EXPECT_EQ(cudf::detail::range_comparable_value<OrderByType>(range_unbounded), rep_type{});
+}
 
-  {
-    // Negative tests.
-    // Cannot scale from higher to lower precision. (Congruent with std::chrono::duration scaling.)
-    // Cannot extract duration value in the wrong representation type.
+TYPED_TEST(TimestampRangeWindowBoundsTest, WrongRangeType)
+{
+  using OrderByType = TypeParam;
 
-    auto range_3M_ns = range_bounds(duration_scalar<duration_ns>{int64_t{3} * 1000 * 1000, true});
-    EXPECT_THROW(range_3M_ns.scale_to(data_type{type_id::TIMESTAMP_DAYS}), cudf::logic_error);
-    EXPECT_THROW(range_comparable_value<int32_t>(range_3M_ns), cudf::logic_error);
+  using wrong_range_type = std::conditional_t< std::is_same<OrderByType, timestamp_D>::value,
+                                               duration_ns,
+                                               duration_D >;
+  auto range_3 = cudf::range_window_bounds::get(duration_scalar<wrong_range_type>{3, true});
 
-    auto range_3_days = range_bounds(duration_scalar<duration_D>{3, true});
-    EXPECT_THROW(range_comparable_value<int64_t>(range_3_days), cudf::logic_error);
-  }
+  EXPECT_THROW(cudf::detail::range_comparable_value<OrderByType>(range_3), cudf::logic_error);
+
+  auto range_unbounded = range_window_bounds::unbounded(data_type{type_to_id<wrong_range_type>()});
+  EXPECT_THROW(cudf::detail::range_comparable_value<OrderByType>(range_unbounded), cudf::logic_error);
 }
 
 template <typename T>
-struct TypedRangeWindowBoundsTest : RangeWindowBoundsTest {
+struct NumericRangeWindowBoundsTest : RangeWindowBoundsTest {
 };
 
 using TypesForTest = cudf::test::IntegralTypesNotBool;
 
-TYPED_TEST_CASE(TypedRangeWindowBoundsTest, TypesForTest);
+TYPED_TEST_CASE(NumericRangeWindowBoundsTest, TypesForTest);
 
-TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
+TYPED_TEST(NumericRangeWindowBoundsTest, BasicNumericRangeTypeMapping)
 {
-  using namespace cudf;
-  using namespace cudf::detail;
-
   using T = TypeParam;
 
-  {
-    auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
-    numeric_bounds.scale_to(data_type{type_to_id<T>()});
-    EXPECT_EQ(range_comparable_value<T>(numeric_bounds), T{3});
-  }
+  using range_type = cudf::detail::range_type<T>;
+  using range_rep_type = cudf::detail::range_rep_type<T>;
 
-  {
-    auto unbounded = range_window_bounds::unbounded(data_type{type_to_id<T>()});
-    unbounded.scale_to(data_type{type_to_id<T>()});
-    EXPECT_EQ(range_comparable_value<T>(unbounded), std::numeric_limits<T>::max());
-  }
+  static_assert(std::is_same<T, range_type>::value);
+  static_assert(std::is_same<T, range_rep_type>::value);
+}
 
-  {
-    // Negative tests.
-    auto numeric_bounds = range_bounds(numeric_scalar<T>{3, true});
+TYPED_TEST(NumericRangeWindowBoundsTest, BoundsConstruction)
+{
+  using OrderByType = TypeParam;
+  using range_type = cudf::detail::range_type<OrderByType>;
+  using rep_type = cudf::detail::range_rep_type<OrderByType>;
 
-    std::for_each(thrust::make_counting_iterator(1),
-                  thrust::make_counting_iterator<int32_t>(static_cast<int>(type_id::NUM_TYPE_IDS)),
-                  [&numeric_bounds](auto i) {
-                    auto id = static_cast<type_id>(i);
-                    if (type_to_id<T>() != id) {
-                      EXPECT_THROW(numeric_bounds.scale_to(data_type{id}), cudf::logic_error);
-                    }
-                  });
-  }
+  using range_window_bounds = cudf::range_window_bounds;
+
+  static_assert(std::is_integral<range_type>::value);
+  auto range_3 = range_window_bounds::get(numeric_scalar<range_type>{3, true});
+  EXPECT_FALSE(range_3.is_unbounded() 
+               && "range_window_bounds constructed from scalar cannot be unbounded.");
+  EXPECT_EQ(cudf::detail::range_comparable_value<OrderByType>(range_3), rep_type{3});
+
+  auto range_unbounded = range_window_bounds::unbounded(data_type{type_to_id<range_type>()});
+  EXPECT_TRUE(range_unbounded.is_unbounded() 
+              && "range_window_bounds::unbounded() must return an unbounded range.");
+  EXPECT_EQ(cudf::detail::range_comparable_value<OrderByType>(range_unbounded), rep_type{});
+}
+
+TYPED_TEST(NumericRangeWindowBoundsTest, WrongRangeType)
+{
+  using OrderByType = TypeParam;
+
+  using wrong_range_type = std::conditional_t< std::is_same<OrderByType, int32_t>::value,
+                                               int16_t,
+                                               int32_t >;
+  auto range_3 = cudf::range_window_bounds::get(numeric_scalar<wrong_range_type>{3, true});
+
+  EXPECT_THROW(cudf::detail::range_comparable_value<OrderByType>(range_3), cudf::logic_error);
+
+  auto range_unbounded = range_window_bounds::unbounded(data_type{type_to_id<wrong_range_type>()});
+  EXPECT_THROW(cudf::detail::range_comparable_value<OrderByType>(range_unbounded), cudf::logic_error);
 }
 
 }  // namespace test
