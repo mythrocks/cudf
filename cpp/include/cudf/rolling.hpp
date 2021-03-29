@@ -494,8 +494,8 @@ std::unique_ptr<column> grouped_range_rolling_window(
   column_view const& orderby_column,
   cudf::order const& order,
   column_view const& input,
-  range_window_bounds&& preceding,
-  range_window_bounds&& following,
+  range_window_bounds const& preceding,
+  range_window_bounds const& following,
   size_type min_periods,
   std::unique_ptr<aggregation> const& aggr,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());

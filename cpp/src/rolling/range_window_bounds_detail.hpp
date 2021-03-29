@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#pragma once
 
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/types.hpp>
@@ -39,35 +40,35 @@ constexpr bool is_supported_order_by_column_type()
   ;
 }
 
-/// Checks if a range bounds scalar of type `From` can be scaled
-/// to an orderby colum of type `To`.
-template <typename From, typename To, typename = void>
-struct is_range_scalable : std::false_type {
+/// Checks if a range bounds scalar of type `Range` has the same resolution
+/// as an orderby column of type `OrderBy`.
+template <typename Range, typename OrderBy, typename = void>
+struct is_matching_resolution : std::false_type {
 };
 
-/// Duration ranges may be scaled for use with a Timestamp orderby column
-/// only if the precision of the orderby column is higher or equal to
-/// the range column.
-template <typename From, typename To>
-struct is_range_scalable<
-  From,  // Range Type.
-  To,    // OrderBy Type.
-  std::enable_if_t<cudf::is_duration<From>() && cudf::is_timestamp<To>(), void>> {
-  using to_duration           = typename To::duration;
-  using to_period             = typename to_duration::period;
-  using from_period           = typename From::period;
-  static constexpr bool value = cuda::std::ratio_less_equal<to_period, from_period>::value;
+/// Checks if a duration range bounds scalar of type `Range` has the same resolution
+/// as a timestamp orderby column of type `OrderBy`.
+template <typename Range, typename OrderBy>
+struct is_matching_resolution<
+  Range,  
+  OrderBy,
+  std::enable_if_t<cudf::is_duration<Range>() && cudf::is_timestamp<OrderBy>(), void>> {
+  using oby_duration          = typename OrderBy::duration;
+  using oby_period            = typename oby_duration::period;
+  using range_period          = typename Range::period;
+  static constexpr bool value = cuda::std::ratio_equal<oby_period, range_period>::value;
 };
 
 /// Integral range scalars can only be used with orderby columns of exactly the same type.
-template <typename From>
-struct is_range_scalable<
-  From,
-  From,
-  std::enable_if_t<std::is_integral<From>::value && !cudf::is_boolean<From>(), void>>
+template <typename T>
+struct is_matching_resolution<
+  T,
+  T,
+  std::enable_if_t<std::is_integral<T>::value && !cudf::is_boolean<T>(), void>>
   : std::true_type {
 };
 
+/* DELETEME!
 template <typename OrderByColumnType>
 struct range_scaler  // A scalar_scaler, if you will.
 {
@@ -120,6 +121,7 @@ struct range_scaler  // A scalar_scaler, if you will.
       mr}};
   }
 };
+*/
 
 namespace {
 template <typename RepType>
@@ -168,6 +170,26 @@ void assert_non_negative(T const& value)
   // Unsigned values are non-negative.
 }
 
+/// Helper to check that the range-type mathes the orderby column type,
+/// in resolution.
+template <typename OrderByType>
+struct range_resolution_checker
+{
+  template <typename RangeType,
+            std::enable_if_t< detail::is_matching_resolution<RangeType, OrderByType>::value,
+                              void >* = nullptr >
+  void operator()() const
+  {}
+
+  template <typename RangeType,
+            std::enable_if_t< !detail::is_matching_resolution<RangeType, OrderByType>::value,
+                              void >* = nullptr >
+  void operator()() const
+  {
+    CUDF_FAIL("Range type resolution must exactly match that of the OrderBy type.");
+  }
+};
+
 }  // namespace
 
 /**
@@ -192,20 +214,11 @@ RepType range_comparable_value(range_window_bounds const& range_bounds,
   return comparable_value;
 }
 
-/**
- * @brief Helper method to construct window_range_bounds from scalar values.
- *
- * @tparam ScalarType The type of the scalar argument  (E.g. duration_scalar<DURATION_DAYS>.)
- * @tparam ScalarType::value_type The type of the scalar argument (E.g. DURATION_DAYS)
- * @param scalar The scalar from which the window_range_bounds is to be constructed
- * @return range_window_bounds constructed from the scalar.
- */
-template <typename ScalarType,
-          typename value_type = typename ScalarType::value_type,
-          std::enable_if_t<is_supported_range_type<value_type>(), void>* = nullptr>
-auto range_bounds(ScalarType const& scalar)
+template <typename OrderByType>
+void assert_matching_resolution(range_window_bounds const& range_bounds)
 {
-  return range_window_bounds::get(std::unique_ptr<ScalarType>{new ScalarType{scalar}});
+  cudf::type_dispatcher(range_bounds.range_scalar().type(),
+                        range_resolution_checker<OrderByType>{});
 }
 
 }  // namespace detail
