@@ -68,64 +68,27 @@ struct is_matching_resolution<
   : std::true_type {
 };
 
-/* DELETEME!
-template <typename OrderByColumnType>
-struct range_scaler  // A scalar_scaler, if you will.
-{
-  // SFINAE catch-all.
-  template <typename RangeType, typename... Args>
-  std::enable_if_t<!is_range_scalable<RangeType, OrderByColumnType>::value, std::unique_ptr<scalar>>
-  operator()(Args&&... args)
-  {
-    CUDF_FAIL("Unsupported range type for order by column!");
-  }
-
-  template <typename RangeType,
-            std::enable_if_t<is_timestamp<OrderByColumnType>() && is_duration<RangeType>() &&
-                               is_range_scalable<RangeType, OrderByColumnType>::value,
-                             void>* = nullptr>
-  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
-                                     bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
-  {
-    using order_by_column_duration_t = typename OrderByColumnType::duration;
-    using rep_t                      = typename order_by_column_duration_t::rep;
-
-    auto const& range_scalar_duration =
-      static_cast<cudf::duration_scalar<RangeType> const&>(range_scalar);
-    return std::unique_ptr<scalar>{new cudf::duration_scalar<order_by_column_duration_t>{
-      is_unbounded_range ? order_by_column_duration_t{std::numeric_limits<rep_t>::max()}
-                         : order_by_column_duration_t{range_scalar_duration.value(stream)},
-      true,
-      stream,
-      mr}};
-  }
-
-  template <typename RangeType,
-            std::enable_if_t<std::is_same<OrderByColumnType, RangeType>::value &&
-                               std::is_integral<RangeType>::value && !cudf::is_boolean<RangeType>(),
-                             void>* = nullptr>
-  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
-                                     bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
-  {
-    using numeric_scalar = cudf::numeric_scalar<RangeType>;
-
-    return std::unique_ptr<scalar>{new numeric_scalar{
-      is_unbounded_range ? std::numeric_limits<RangeType>::max()
-                         : static_cast<numeric_scalar const&>(range_scalar).value(stream),
-      true,
-      stream,
-      mr}};
-  }
-};
-*/
-
 namespace {
+
 template <typename RepType>
 struct range_comparable_value_fetcher {
+
+  private:
+
+  template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed, void>* = nullptr>
+  static void assert_non_negative(T const& value)
+  {
+    CUDF_EXPECTS(value >= T{0}, "Range scalar must be >= 0.");
+  }
+
+  template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
+  static void assert_non_negative(T const& value)
+  {
+    // Unsigned values are non-negative.
+  }
+
+  public:
+
   template <typename RangeType, typename... Args>
   std::enable_if_t<!is_supported_range_type<RangeType>(), RepType> operator()(Args&&...) const
   {
@@ -136,15 +99,20 @@ struct range_comparable_value_fetcher {
   std::enable_if_t<std::is_integral<RangeType>::value && !cudf::is_boolean<RangeType>(), RepType>
   operator()(scalar const& range_scalar, rmm::cuda_stream_view stream) const
   {
-    return static_cast<numeric_scalar<RangeType> const&>(range_scalar).value(stream);
+    auto val = static_cast<numeric_scalar<RangeType> const&>(range_scalar).value(stream);
+    assert_non_negative(val);
+    return val;
   }
 
   template <typename RangeType>
   std::enable_if_t<cudf::is_duration<RangeType>(), RepType> operator()(
     scalar const& range_scalar, rmm::cuda_stream_view stream) const
   {
-    return static_cast<duration_scalar<RangeType> const&>(range_scalar).value(stream).count();
+    auto val = static_cast<duration_scalar<RangeType> const&>(range_scalar).value(stream).count();
+    assert_non_negative(val);
+    return val;
   }
+
 };
 
 template <typename RepType>
@@ -157,18 +125,6 @@ bool rep_type_compatible_for_range_comparison(type_id id)
          (id == type_id::DURATION_NANOSECONDS && std::is_same<RepType, int64_t>()) ||
          type_id_matches_device_storage_type<RepType>(id);
 };
-
-template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed, void>* = nullptr>
-void assert_non_negative(T const& value)
-{
-  CUDF_EXPECTS(value >= T{0}, "Range scalar must be >= 0.");
-}
-
-template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
-void assert_non_negative(T const& value)
-{
-  // Unsigned values are non-negative.
-}
 
 /// Helper to check that the range-type mathes the orderby column type,
 /// in resolution.
@@ -208,10 +164,8 @@ RepType range_comparable_value(range_window_bounds const& range_bounds,
   auto const& range_scalar = range_bounds.range_scalar();
   CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()),
                "Data type of window range scalar does not match output type.");
-  auto comparable_value = cudf::type_dispatcher(
+  return cudf::type_dispatcher(
     range_scalar.type(), range_comparable_value_fetcher<RepType>{}, range_scalar, stream);
-  assert_non_negative(comparable_value);
-  return comparable_value;
 }
 
 template <typename OrderByType>

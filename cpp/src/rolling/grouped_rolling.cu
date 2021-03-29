@@ -826,33 +826,12 @@ struct dispatch_grouped_range_rolling_window {
     CUDF_FAIL("Unsupported OrderBy column type.");
   }
 
-  template <typename OrderByColumnType>
+  template <typename OrderByColumnType, typename... Args>
   std::enable_if_t<std::is_same<OrderByColumnType, cudf::timestamp_D>::value,
                    std::unique_ptr<column>>
-  operator()(column_view const& input,
-             column_view const& order_by_column,
-             cudf::order const& order,
-             rmm::device_uvector<cudf::size_type> const& group_offsets,
-             rmm::device_uvector<cudf::size_type> const& group_labels,
-             range_window_bounds const& preceding,
-             range_window_bounds const& following,
-             size_type min_periods,
-             std::unique_ptr<aggregation> const& aggr,
-             rmm::cuda_stream_view stream,
-             rmm::mr::device_memory_resource* mr)
+  operator()(Args&&... args)
   {
-    return grouped_range_rolling_window_impl<OrderByColumnType, int32_t>(
-      input,
-      order_by_column,
-      order,
-      group_offsets,
-      group_labels,
-      std::move(preceding),
-      std::move(following),
-      min_periods,
-      aggr,
-      stream,
-      mr);
+    return grouped_range_rolling_window_impl<OrderByColumnType, int32_t>(std::forward<Args>(args)...);
   }
 
   template <typename OrderByColumnType, typename... Args>

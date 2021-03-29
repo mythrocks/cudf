@@ -23,24 +23,6 @@
 namespace cudf {
 namespace {
 
-/* DELETEME!
-struct type_deducing_range_scaler {
-  template <typename OrderByColumnType>
-  std::unique_ptr<scalar> operator()(scalar const& range_scalar,
-                                     bool is_unbounded_range,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
-  {
-    return cudf::type_dispatcher(range_scalar.type(),
-                                 cudf::detail::range_scaler<OrderByColumnType>{},
-                                 range_scalar,
-                                 is_unbounded_range,
-                                 stream,
-                                 mr);
-  }
-};
-*/
-
 struct range_scalar_constructor
 {
   template <typename T, std::enable_if_t<!detail::is_supported_range_type<T>(), void>* = nullptr>
@@ -65,19 +47,6 @@ struct range_scalar_constructor
 };
 
 }  // namespace
-
-/* DELETEME!
-void range_window_bounds::scale_to(data_type target_type,
-                                   rmm::cuda_stream_view stream,
-                                   rmm::mr::device_memory_resource* mr)
-{
-  scalar const& range_scalar = *_range_scalar;
-
-  _range_scalar = cudf::type_dispatcher(
-    target_type, type_deducing_range_scaler{}, range_scalar, _is_unbounded, stream, mr);
-  assert_invariants();
-}
-*/
 
 void range_window_bounds::assert_invariants() const
 {
