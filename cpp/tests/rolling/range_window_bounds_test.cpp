@@ -85,13 +85,13 @@ TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
 
   {
     auto numeric_bounds = range_window_bounds::get(numeric_scalar<T>{3, true});
-    assert_matching_resolution<T>(numeric_bounds);
+    // assert_matching_resolution<T>(numeric_bounds);
     EXPECT_EQ(range_comparable_value<T>(numeric_bounds), T{3});
   }
 
   {
     auto unbounded = range_window_bounds::unbounded(data_type{type_to_id<T>()});
-    assert_matching_resolution<T>(unbounded);
+    // assert_matching_resolution<T>(unbounded);
     EXPECT_EQ(range_comparable_value<T>(unbounded), T{});
   }
 
@@ -108,6 +108,16 @@ TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
                     }
                   });
   }
+}
+
+TYPED_TEST(TypedRangeWindowBoundsTest, TestRangeTypeRegistration)
+{
+  static_assert(std::is_same< cudf::detail::range_type_for<cudf::timestamp_D>, cudf::duration_D >::value, "Unexpected!");
+  static_assert(std::is_same< cudf::detail::range_type_for<int32_t>, int32_t >::value, "Unexpected!");
+  using range_t = cudf::detail::range_type_for<cudf::timestamp_D>;
+  
+  std::cout << static_cast<int32_t>(cudf::type_to_id<range_t>()) << std::endl;
+
 }
 
 }  // namespace test

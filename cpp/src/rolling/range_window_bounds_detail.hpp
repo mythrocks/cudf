@@ -40,6 +40,59 @@ constexpr bool is_supported_order_by_column_type()
   ;
 }
 
+/// Range-comparable representation type for an orderby column type.
+/// This is the datatype used for range comparisons.
+///   1. For integral orderby column types `T`, comparisons are done as `T`.
+///      E.g. `range_type_for<int32_t>` == `int32_t`.
+///   2. For timestamp orderby columns:
+///      a. For `TIMESTAMP_DAYS`, the range-type is `DURATION_DAYS`.
+///         Comparisons are done in `int32_t`.
+///      b. For all other timestamp types, comparisons are done in `int64_t`.
+template <typename ColumnType,
+          typename = void>
+struct range_type_for_impl
+{
+  using type = void;
+  using rep_type = void;
+};
+
+template <typename ColumnType>
+struct range_type_for_impl<ColumnType,
+                      std::enable_if_t< std::is_integral<ColumnType>::value
+                                      && !cudf::is_boolean<ColumnType>(), void>>
+{
+  using type = ColumnType;
+  using rep_type = ColumnType;
+};
+
+#define RANGE_TYPE_FOR(TimestampT, DurationT)                                                           \
+  template <typename ColumnType>                                                                        \
+  struct range_type_for_impl<ColumnType,                                                                \
+                        std::enable_if_t< cudf::is_timestamp<ColumnType>()                              \
+                                          && std::is_same<ColumnType, TimestampT>::value, void>>        \
+  {                                                                                                     \
+    using type = DurationT;                                                                             \
+    using rep_type = typename DurationT::rep;                                                           \
+  }
+
+RANGE_TYPE_FOR(cudf::timestamp_D, cudf::duration_D);
+RANGE_TYPE_FOR(cudf::timestamp_s, cudf::duration_s);
+RANGE_TYPE_FOR(cudf::timestamp_ms, cudf::duration_ms);
+RANGE_TYPE_FOR(cudf::timestamp_us, cudf::duration_us);
+RANGE_TYPE_FOR(cudf::timestamp_ns, cudf::duration_ns);
+
+#undef RANGE_TYPE_FOR
+
+template <typename ColumnType>
+using range_type_for = typename range_type_for_impl<ColumnType>::type;
+
+template <typename ColumnType>
+using range_rep_type_for = typename range_type_for_impl<ColumnType>::rep_type;
+
+
+// TODO: Matching resolution code should be removed.
+/*
+
 /// Checks if a range bounds scalar of type `Range` has the same resolution
 /// as an orderby column of type `OrderBy`.
 template <typename Range, typename OrderBy, typename = void>
@@ -67,11 +120,13 @@ struct is_matching_resolution<
   std::enable_if_t<std::is_integral<T>::value && !cudf::is_boolean<T>(), void>>
   : std::true_type {
 };
+*/
 
 namespace {
 
+/*
 template <typename RepType>
-struct range_comparable_value_fetcher {
+struct range_comparable_value_fetcher_2 {
 
   private:
 
@@ -125,7 +180,9 @@ bool rep_type_compatible_for_range_comparison(type_id id)
          (id == type_id::DURATION_NANOSECONDS && std::is_same<RepType, int64_t>()) ||
          type_id_matches_device_storage_type<RepType>(id);
 };
+*/
 
+/* TODO: Remove!
 /// Helper to check that the range-type mathes the orderby column type,
 /// in resolution.
 template <typename OrderByType>
@@ -145,6 +202,41 @@ struct range_resolution_checker
     CUDF_FAIL("Range type resolution must exactly match that of the OrderBy type.");
   }
 };
+*/
+
+template <typename T, std::enable_if_t<std::numeric_limits<T>::is_signed, void>* = nullptr>
+void assert_non_negative(T const& value)
+{
+  CUDF_EXPECTS(value >= T{0}, "Range scalar must be >= 0.");
+}
+
+template <typename T, std::enable_if_t<!std::numeric_limits<T>::is_signed, void>* = nullptr>
+void assert_non_negative(T const& value)
+{
+  // Unsigned values are non-negative.
+}
+
+template <typename RangeT, 
+          typename RepT,
+          std::enable_if_t< std::is_integral<RangeT>::value && !cudf::is_boolean<RangeT>(), void>* = nullptr>
+RepT range_comparable_value_impl(scalar const& range_scalar,
+                                 rmm::cuda_stream_view stream)
+{
+  auto val = static_cast<numeric_scalar<RangeT> const&>(range_scalar).value(stream);
+  assert_non_negative(val);
+  return val;
+}
+
+template <typename RangeT, 
+          typename RepT,
+          std::enable_if_t< cudf::is_duration<RangeT>(), void>* = nullptr>
+RepT range_comparable_value_impl(scalar const& range_scalar,
+                                 rmm::cuda_stream_view stream)
+{
+  auto val = static_cast<duration_scalar<RangeT> const&>(range_scalar).value(stream).count();
+  assert_non_negative(val);
+  return val;
+}
 
 }  // namespace
 
@@ -157,23 +249,41 @@ struct range_resolution_checker
  * @param stream The CUDA stream for device memory operations
  * @return RepType Value of the range scalar
  */
+/*
 template <typename RepType>
-RepType range_comparable_value(range_window_bounds const& range_bounds,
+RepType range_comparable_value_2(range_window_bounds const& range_bounds,
                                rmm::cuda_stream_view stream = rmm::cuda_stream_default)
 {
   auto const& range_scalar = range_bounds.range_scalar();
   CUDF_EXPECTS(rep_type_compatible_for_range_comparison<RepType>(range_scalar.type().id()),
                "Data type of window range scalar does not match output type.");
   return cudf::type_dispatcher(
-    range_scalar.type(), range_comparable_value_fetcher<RepType>{}, range_scalar, stream);
+    range_scalar.type(), range_comparable_value_fetcher_2<RepType>{}, range_scalar, stream);
+}
+*/
+
+template <typename OrderByType>
+range_rep_type_for<OrderByType> range_comparable_value(range_window_bounds const& range_bounds,
+                                                       rmm::cuda_stream_view stream = rmm::cuda_stream_default)
+{
+  auto const& range_scalar = range_bounds.range_scalar();
+  using range_type = cudf::detail::range_type_for<OrderByType>;
+
+  CUDF_EXPECTS(range_scalar.type().id() == cudf::type_to_id<range_type>(),
+              "Unexpected range type for specified orderby column.");
+
+  using rep_type = cudf::detail::range_rep_type_for<OrderByType>;
+  return range_comparable_value_impl<range_type, rep_type>(range_scalar, stream);
 }
 
+/* TODO: Remove!
 template <typename OrderByType>
 void assert_matching_resolution(range_window_bounds const& range_bounds)
 {
   cudf::type_dispatcher(range_bounds.range_scalar().type(),
                         range_resolution_checker<OrderByType>{});
 }
+*/
 
 }  // namespace detail
 }  // namespace cudf

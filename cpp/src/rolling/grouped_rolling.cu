@@ -760,19 +760,32 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  detail::assert_matching_resolution<OrderByT>(preceding_window); // TODO: Combine this with `range_comparable_value()`. Reduce dispatches.
-  detail::assert_matching_resolution<OrderByT>(following_window);
+  // detail::assert_matching_resolution<OrderByT>(preceding_window); // TODO: Combine this with `range_comparable_value()`. Reduce dispatches.
+  // detail::assert_matching_resolution<OrderByT>(following_window);
 
-  auto preceding = detail::range_comparable_value<ComparableT>(preceding_window);
-  auto following = detail::range_comparable_value<ComparableT>(following_window);
+  /*
+  using range_type = cudf::detail::range_type_for<OrderByT>;
+
+  auto assert_expected_range_type = 
+    [expected_range_type = cudf::type_to_id<range_type>()](range_window_bounds const& bounds) {
+      CUDF_EXPECTS(bounds.range_scalar().type().id() == expected_range_type,
+                  "Unexpected range type for specified orderby column.");
+    };
+
+  assert_expected_range_type(preceding_window);
+  assert_expected_range_type(following_window);
+    */
+
+  auto preceding_value = detail::range_comparable_value<OrderByT>(preceding_window);
+  auto following_value = detail::range_comparable_value<OrderByT>(following_window);
 
   if (timestamp_ordering == cudf::order::ASCENDING) {
     return group_offsets.is_empty()
              ? range_window_ASC(input,
                                 orderby_column,
-                                detail::range_comparable_value<ComparableT>(preceding_window),
+                                preceding_value,
                                 preceding_window.is_unbounded(),
-                                cudf::detail::range_comparable_value<ComparableT>(following_window),
+                                following_value,
                                 following_window.is_unbounded(),
                                 min_periods,
                                 aggr,
@@ -782,9 +795,9 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
                                 orderby_column,
                                 group_offsets,
                                 group_labels,
-                                cudf::detail::range_comparable_value<ComparableT>(preceding_window),
+                                preceding_value,
                                 preceding_window.is_unbounded(),
-                                cudf::detail::range_comparable_value<ComparableT>(following_window),
+                                following_value,
                                 following_window.is_unbounded(),
                                 min_periods,
                                 aggr,
@@ -794,9 +807,9 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
     return group_offsets.is_empty()
              ? range_window_DESC(input,
                                  orderby_column,
-                                 cudf::detail::range_comparable_value<ComparableT>(preceding_window),
+                                 preceding_value,
                                  preceding_window.is_unbounded(),
-                                 cudf::detail::range_comparable_value<ComparableT>(following_window),
+                                 following_value,
                                  following_window.is_unbounded(),
                                  min_periods,
                                  aggr,
@@ -806,9 +819,9 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
                                  orderby_column,
                                  group_offsets,
                                  group_labels,
-                                 cudf::detail::range_comparable_value<ComparableT>(preceding_window),
+                                 preceding_value,
                                  preceding_window.is_unbounded(),
-                                 cudf::detail::range_comparable_value<ComparableT>(following_window),
+                                 following_value,
                                  following_window.is_unbounded(),
                                  min_periods,
                                  aggr,
