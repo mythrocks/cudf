@@ -830,33 +830,6 @@ struct dispatch_grouped_range_rolling_window {
   {
     return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
   }
-
-  /*
-  template <typename OrderByColumnType, typename... Args>
-  std::enable_if_t<std::is_same<OrderByColumnType, cudf::timestamp_D>::value,
-                   std::unique_ptr<column>>
-  operator()(Args&&... args)
-  {
-    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
-  }
-
-  template <typename OrderByColumnType, typename... Args>
-  std::enable_if_t<cudf::is_timestamp<OrderByColumnType>() &&
-                     !std::is_same<OrderByColumnType, cudf::timestamp_D>::value,
-                   std::unique_ptr<column>>
-  operator()(Args&&... args)
-  {
-    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
-  }
-
-  template <typename OrderByColumnType, typename... Args>
-  std::enable_if_t<std::is_integral<OrderByColumnType>() && !cudf::is_boolean<OrderByColumnType>(),
-                   std::unique_ptr<column>>
-  operator()(Args&&... args)
-  {
-    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
-  }
-  */
 };
 
 struct to_duration_bounds
