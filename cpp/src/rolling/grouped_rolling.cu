@@ -746,7 +746,7 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
   }
 }
 
-template <typename OrderByT, typename ComparableT>
+template <typename OrderByT>
 std::unique_ptr<column> grouped_range_rolling_window_impl(
   column_view const& input,
   column_view const& orderby_column,
@@ -760,22 +760,6 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  // detail::assert_matching_resolution<OrderByT>(preceding_window); // TODO: Combine this with `range_comparable_value()`. Reduce dispatches.
-  // detail::assert_matching_resolution<OrderByT>(following_window);
-
-  /*
-  using range_type = cudf::detail::range_type_for<OrderByT>;
-
-  auto assert_expected_range_type = 
-    [expected_range_type = cudf::type_to_id<range_type>()](range_window_bounds const& bounds) {
-      CUDF_EXPECTS(bounds.range_scalar().type().id() == expected_range_type,
-                  "Unexpected range type for specified orderby column.");
-    };
-
-  assert_expected_range_type(preceding_window);
-  assert_expected_range_type(following_window);
-    */
-
   auto preceding_value = detail::range_comparable_value<OrderByT>(preceding_window);
   auto following_value = detail::range_comparable_value<OrderByT>(following_window);
 
@@ -840,11 +824,20 @@ struct dispatch_grouped_range_rolling_window {
   }
 
   template <typename OrderByColumnType, typename... Args>
+  std::enable_if_t<detail::is_supported_order_by_column_type<OrderByColumnType>(),
+                   std::unique_ptr<column>>
+  operator()(Args&&... args) const
+  {
+    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
+  }
+
+  /*
+  template <typename OrderByColumnType, typename... Args>
   std::enable_if_t<std::is_same<OrderByColumnType, cudf::timestamp_D>::value,
                    std::unique_ptr<column>>
   operator()(Args&&... args)
   {
-    return grouped_range_rolling_window_impl<OrderByColumnType, int32_t>(std::forward<Args>(args)...);
+    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
   }
 
   template <typename OrderByColumnType, typename... Args>
@@ -853,7 +846,7 @@ struct dispatch_grouped_range_rolling_window {
                    std::unique_ptr<column>>
   operator()(Args&&... args)
   {
-    return grouped_range_rolling_window_impl<OrderByColumnType, int64_t>(std::forward<Args>(args)...);
+    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
   }
 
   template <typename OrderByColumnType, typename... Args>
@@ -861,8 +854,9 @@ struct dispatch_grouped_range_rolling_window {
                    std::unique_ptr<column>>
   operator()(Args&&... args)
   {
-    return grouped_range_rolling_window_impl<OrderByColumnType, OrderByColumnType>(std::forward<Args>(args)...);
+    return grouped_range_rolling_window_impl<OrderByColumnType>(std::forward<Args>(args)...);
   }
+  */
 };
 
 struct to_duration_bounds
