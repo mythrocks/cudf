@@ -50,14 +50,14 @@ constexpr bool is_supported_order_by_column_type()
 ///      b. For all other timestamp types, comparisons are done in `int64_t`.
 template <typename ColumnType,
           typename = void>
-struct range_type_for_impl
+struct range_type_impl
 {
   using type = void;
   using rep_type = void;
 };
 
 template <typename ColumnType>
-struct range_type_for_impl<ColumnType,
+struct range_type_impl<ColumnType,
                       std::enable_if_t< std::is_integral<ColumnType>::value
                                       && !cudf::is_boolean<ColumnType>(), void>>
 {
@@ -65,29 +65,19 @@ struct range_type_for_impl<ColumnType,
   using rep_type = ColumnType;
 };
 
-#define RANGE_TYPE_FOR(TimestampT, DurationT)                                                           \
-  template <typename ColumnType>                                                                        \
-  struct range_type_for_impl<ColumnType,                                                                \
-                        std::enable_if_t< cudf::is_timestamp<ColumnType>()                              \
-                                          && std::is_same<ColumnType, TimestampT>::value, void>>        \
-  {                                                                                                     \
-    using type = DurationT;                                                                             \
-    using rep_type = typename DurationT::rep;                                                           \
-  }
-
-RANGE_TYPE_FOR(cudf::timestamp_D, cudf::duration_D);
-RANGE_TYPE_FOR(cudf::timestamp_s, cudf::duration_s);
-RANGE_TYPE_FOR(cudf::timestamp_ms, cudf::duration_ms);
-RANGE_TYPE_FOR(cudf::timestamp_us, cudf::duration_us);
-RANGE_TYPE_FOR(cudf::timestamp_ns, cudf::duration_ns);
-
-#undef RANGE_TYPE_FOR
+template <typename TimestampType>
+struct range_type_impl<TimestampType,
+                      std::enable_if_t< cudf::is_timestamp<TimestampType>(), void>>
+{
+  using type = typename TimestampType::duration;
+  using rep_type = typename type::rep;
+};
 
 template <typename ColumnType>
-using range_type_for = typename range_type_for_impl<ColumnType>::type;
+using range_type = typename range_type_impl<ColumnType>::type;
 
 template <typename ColumnType>
-using range_rep_type_for = typename range_type_for_impl<ColumnType>::rep_type;
+using range_rep_type = typename range_type_impl<ColumnType>::rep_type;
 
 namespace {
 
@@ -137,16 +127,16 @@ RepT range_comparable_value_impl(scalar const& range_scalar,
  * @return RepType Value of the range scalar
  */
 template <typename OrderByType>
-range_rep_type_for<OrderByType> range_comparable_value(range_window_bounds const& range_bounds,
-                                                       rmm::cuda_stream_view stream = rmm::cuda_stream_default)
+range_rep_type<OrderByType> range_comparable_value(range_window_bounds const& range_bounds,
+                                                   rmm::cuda_stream_view stream = rmm::cuda_stream_default)
 {
   auto const& range_scalar = range_bounds.range_scalar();
-  using range_type = cudf::detail::range_type_for<OrderByType>;
+  using range_type = cudf::detail::range_type<OrderByType>;
 
   CUDF_EXPECTS(range_scalar.type().id() == cudf::type_to_id<range_type>(),
               "Unexpected range type for specified orderby column.");
 
-  using rep_type = cudf::detail::range_rep_type_for<OrderByType>;
+  using rep_type = cudf::detail::range_rep_type<OrderByType>;
   return range_comparable_value_impl<range_type, rep_type>(range_scalar, stream);
 }
 

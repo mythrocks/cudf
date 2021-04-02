@@ -20,6 +20,20 @@ namespace test {
 struct RangeWindowBoundsTest : public BaseFixture {
 };
 
+template <typename Timestamp>
+struct TimestampRangeWindowBoundsTest : RangeWindowBoundsTest {
+};
+
+TYPED_TEST_CASE(TimestampRangeWindowBoundsTest, cudf::test::TimestampTypes);
+
+TYPED_TEST(TimestampRangeWindowBoundsTest, TestBasics)
+{
+  using namespace cudf::detail;
+  // using T = TypeParam;
+  
+  // using range_type = range_type_for<T>;
+}
+
 /*
 TEST_F(RangeWindowBoundsTest, TimestampsAndDurations)
 {
@@ -112,12 +126,11 @@ TYPED_TEST(TypedRangeWindowBoundsTest, BasicScaling)
 
 TYPED_TEST(TypedRangeWindowBoundsTest, TestRangeTypeRegistration)
 {
-  static_assert(std::is_same< cudf::detail::range_type_for<cudf::timestamp_D>, cudf::duration_D >::value, "Unexpected!");
-  static_assert(std::is_same< cudf::detail::range_type_for<int32_t>, int32_t >::value, "Unexpected!");
-  using range_t = cudf::detail::range_type_for<cudf::timestamp_D>;
+  static_assert(std::is_same< cudf::detail::range_type<cudf::timestamp_D>, cudf::duration_D >::value, "Unexpected!");
+  static_assert(std::is_same< cudf::detail::range_type<int32_t>, int32_t >::value, "Unexpected!");
+  using range_t = cudf::detail::range_type<cudf::timestamp_D>;
   
   std::cout << static_cast<int32_t>(cudf::type_to_id<range_t>()) << std::endl;
-
 }
 
 }  // namespace test
