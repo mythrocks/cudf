@@ -121,7 +121,7 @@ RepT range_comparable_value_impl(scalar const& range_scalar,
  * @brief Fetch the value of the range_window_bounds scalar, for comparisons
  *        with an orderby column's rows.
  *
- * @tparam RepType The output type for the range scalar
+ * @tparam OrderByType The type of the orderby column with which the range value will be compared
  * @param range_bounds The range_window_bounds whose value is to be read
  * @param stream The CUDA stream for device memory operations
  * @return RepType Value of the range scalar
