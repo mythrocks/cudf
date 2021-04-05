@@ -46,16 +46,7 @@ using size_col = fwcw<cudf::size_type>;
 template <typename T, typename R = typename T::rep>
 using time_col = fwcw<T, R>;
 
-using days_col = time_col<cudf::timestamp_D>;
-
 using lists_col = lists_column_wrapper<int32_t>;
-
-template <typename T>
-duration_scalar<T> scale_days_to(cudf::duration_D::rep days)
-{
-  auto days_scalar = duration_scalar<cudf::duration_D>{days, true};
-  return duration_scalar<T>(days_scalar.value(), true);
-}
 
 template <typename ScalarT>
 struct window_exec_impl {
@@ -124,7 +115,7 @@ template <typename T>
 struct TypedTimeRangeRollingTest : RangeRollingTest {
 };
 
-TYPED_TEST_CASE(TypedTimeRangeRollingTest, cudf::test::DurationTypes);
+TYPED_TEST_CASE(TypedTimeRangeRollingTest, cudf::test::TimestampTypes);
 
 template <typename WindowExecT>
 void verify_results_for_ascending(WindowExecT exec)
@@ -176,32 +167,32 @@ void verify_results_for_ascending(WindowExecT exec)
               all_valid});
 }
 
-/*
-TYPED_TEST(TypedTimeRangeRollingTest, TimeScalingASC)
+TYPED_TEST(TypedTimeRangeRollingTest, TimestampASC)
 {
-  // Confirm that lower resolution durations can be used as window bounds
-  // for higher resolution timestamps.
+  // Confirm that timestamp columns can be used in range queries
+  // at all resolutions, given the right duration column type.
+
   using namespace cudf;
-  using DurationT = TypeParam;
+  using TimeT     = TypeParam;
+  using DurationT = cudf::detail::range_type<TimeT>;
+  using time_col  = fwcw<TimeT>;
 
   // clang-format off
   auto gby_column  = int_col { 0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
   auto agg_column  = int_col {{0, 8, 4, 6, 2, 9, 3, 5, 1, 7},
                               {1, 1, 1, 1, 1, 1, 1, 1, 1, 0}};
-  auto days_column = days_col{ 1, 5, 6, 8, 9, 2, 2, 3, 4, 9};
-  auto nano_column = cudf::cast(days_column, data_type{type_id::TIMESTAMP_NANOSECONDS});
+  auto time_column = time_col{ 1, 5, 6, 8, 9, 2, 2, 3, 4, 9};
   // clang-format on
 
   auto exec = window_exec(gby_column,
-                          nano_column->view(),
+                          time_column,
                           order::ASCENDING,
                           agg_column,
-                          scale_days_to<DurationT>(2),   // 2 days preceding.
-                          scale_days_to<DurationT>(1));  // 1 day following.
+                          duration_scalar<DurationT>{DurationT{2}, true},   // 2 "durations" preceding.
+                          duration_scalar<DurationT>{DurationT{1}, true});  // 1 "durations" following.
 
   verify_results_for_ascending(exec);
 }
-*/
 
 template <typename WindowExecT>
 void verify_results_for_descending(WindowExecT exec)
@@ -252,32 +243,31 @@ void verify_results_for_descending(WindowExecT exec)
               all_valid});
 }
 
-/*
-TYPED_TEST(TypedTimeRangeRollingTest, TimeScalingDESC)
+TYPED_TEST(TypedTimeRangeRollingTest, TimestampDESC)
 {
-  // Confirm that lower resolution durations can be used as window bounds
-  // for higher resolution timestamps.
+  // Confirm that timestamp columns can be used in range queries
+  // at all resolutions, given the right duration column type.
   using namespace cudf;
-  using DurationT = TypeParam;
+  using TimeT     = TypeParam;
+  using DurationT = cudf::detail::range_type<TimeT>;
+  using time_col  = fwcw<TimeT>;
 
   // clang-format off
   auto gby_column  = int_col { 5, 5, 5, 5, 5, 1, 1, 1, 1, 1};
   auto agg_column  = int_col {{7, 1, 5, 3, 9, 2, 6, 4, 8, 0},
                               {0, 1, 1, 1, 1, 1, 1, 1, 1, 1}};
-  auto days_column = days_col{ 9, 4, 3, 2, 2, 9, 8, 6, 5, 1};
-  auto nano_column = cudf::cast(days_column, data_type{type_id::TIMESTAMP_NANOSECONDS});
+  auto time_column = time_col{ 9, 4, 3, 2, 2, 9, 8, 6, 5, 1};
   // clang-format on
 
   auto exec = window_exec(gby_column,
-                          nano_column->view(),
+                          time_column,
                           order::DESCENDING,
                           agg_column,
-                          scale_days_to<DurationT>(1),   // 1 day preceding.
-                          scale_days_to<DurationT>(2));  // 2 days following.
+                          duration_scalar<DurationT>{DurationT{1}, true},   // 1 "durations" preceding.
+                          duration_scalar<DurationT>{DurationT{2}, true});  // 2 "durations" following.
 
   verify_results_for_descending(exec);
 }
-*/
 
 template <typename T>
 struct TypedIntegralRangeRollingTest : RangeRollingTest {
