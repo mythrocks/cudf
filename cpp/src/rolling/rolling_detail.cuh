@@ -735,12 +735,50 @@ struct rolling_window_launcher {
     CUDF_FAIL("Aggregation operator and/or input type combination is invalid");
   }
 
+  template <aggregation::Kind op,
+            typename PrecedingWindowIterator,
+            typename FollowingWindowIterator>
+  struct lead_lag_gather_map_builder
+  {
+    lead_lag_gather_map_builder(size_type input_size,
+                                size_type row_offset,
+                                PrecedingWindowIterator preceding,
+                                FollowingWindowIterator following)
+      : _input_size{input_size},
+        NULL_INDEX{input_size + 1},
+        _row_offset{row_offset},
+        _preceding{preceding},
+        _following{following}
+    {}
+
+    template <aggregation::Kind o = op, CUDF_ENABLE_IF(o == aggregation::LEAD)>
+    size_type __device__ operator()(size_type i)
+    {
+      return (_row_offset > _following[i]) ? NULL_INDEX : (i + _row_offset);
+    }
+
+    template <aggregation::Kind o = op, CUDF_ENABLE_IF(o == aggregation::LAG)>
+    size_type __device__ operator()(size_type i)
+    {
+
+      return (_row_offset > (_preceding[i]-1)) ? NULL_INDEX : (i - _row_offset);
+    }
+
+    private:
+
+      size_type _input_size;
+      size_type NULL_INDEX;
+      size_type _row_offset;
+      PrecedingWindowIterator _preceding;
+      FollowingWindowIterator _following;
+  };
+
   template <typename T,
             typename agg_op,
             aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
-  std::enable_if_t<cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width
+  std::enable_if_t<cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width.
                      (op == aggregation::LEAD || op == aggregation::LAG),
                    std::unique_ptr<column>>
   launch(column_view const& input,
@@ -772,32 +810,14 @@ struct rolling_window_launcher {
     auto gather_map = gather_map_column->mutable_view();
     // auto scatter_map = something_similar;
 
-    auto const NULL_INDEX = size_type{input.size()} + 1; // Out of bounds, for nullification.
+    // auto const NULL_INDEX = size_type{input.size()} + 1; // Out of bounds, for nullification.
 
-    if (op == aggregation::LEAD)
-    {
-      thrust::transform(rmm::exec_policy(stream),
-                        thrust::make_counting_iterator(size_type{0}),
-                        thrust::make_counting_iterator(size_type{input.size()}),
-                        gather_map.begin<size_type>(),
-                        [  NULL_INDEX,
-                           following,
-                           row_offset = device_agg_op.row_offset ] __device__ (auto i) {
-                             return (row_offset > following[i]) ? NULL_INDEX : (i + row_offset);
-                           });
-    }
-    else
-    {
-      thrust::transform(rmm::exec_policy(stream),
-                        thrust::make_counting_iterator(size_type{0}),
-                        thrust::make_counting_iterator(size_type{input.size()}),
-                        gather_map.begin<size_type>(),
-                        [  NULL_INDEX,
-                           preceding,
-                           row_offset = device_agg_op.row_offset ] __device__ (auto i) {
-                             return (row_offset > (preceding[i]-1)) ? NULL_INDEX : (i - row_offset);
-                           });
-    }
+    thrust::transform(rmm::exec_policy(stream),
+                      thrust::make_counting_iterator(size_type{0}),
+                      thrust::make_counting_iterator(size_type{input.size()}),
+                      gather_map.begin<size_type>(),
+                      lead_lag_gather_map_builder<op, PrecedingWindowIterator, FollowingWindowIterator>
+                        {input.size(), device_agg_op.row_offset, preceding, following});
 
     return std::move(
             cudf::gather(table_view{std::vector<column_view>{input}}, 
@@ -806,11 +826,6 @@ struct rolling_window_launcher {
                         )->release()[0]);
 
     /*
-    if (true)
-    {
-      return cudf::concatenate(std::vector<column_view>{input, default_outputs});
-    }
-
     auto output = make_fixed_width_column(
       target_type(input.type(), op), input.size(), mask_state::UNINITIALIZED, stream, mr);
 
