@@ -22,6 +22,7 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/concatenate.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/detail/aggregation/aggregation.cuh>
 #include <cudf/detail/aggregation/aggregation.hpp>
@@ -739,13 +740,13 @@ struct rolling_window_launcher {
             aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
-  std::enable_if_t<cudf::is_fixed_width<T>() and
+  std::enable_if_t<cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width
                      (op == aggregation::LEAD || op == aggregation::LAG),
                    std::unique_ptr<column>>
   launch(column_view const& input,
          column_view const& default_outputs,
-         PrecedingWindowIterator preceding_window_begin,
-         FollowingWindowIterator following_window_begin,
+         PrecedingWindowIterator preceding,
+         FollowingWindowIterator following,
          size_type min_periods,
          std::unique_ptr<aggregation> const& agg,
          agg_op const& device_agg_op,
@@ -754,11 +755,60 @@ struct rolling_window_launcher {
   {
     CUDF_EXPECTS(default_outputs.type().id() == input.type().id(),
                  "Defaults column type must match input column.");  // Because LEAD/LAG.
+                
+    CUDF_EXPECTS(default_outputs.is_empty() || (input.size() == default_outputs.size()),
+                 "Number of defaults must match input column.");
 
     // For LEAD(0)/LAG(0), no computation need be performed.
     // Return copy of input.
     if (0 == static_cast<cudf::detail::lead_lag_aggregation*>(agg.get())->row_offset) {
       return std::make_unique<column>(input, stream, mr);
+    }
+
+    auto static constexpr size_data_type = data_type{type_to_id<size_type>()};
+
+    auto gather_map_column = 
+      make_fixed_width_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
+    auto gather_map = gather_map_column->mutable_view();
+    // auto scatter_map = something_similar;
+
+    auto const NULL_INDEX = size_type{input.size()} + 1; // Out of bounds, for nullification.
+
+    if (op == aggregation::LEAD)
+    {
+      thrust::transform(rmm::exec_policy(stream),
+                        thrust::make_counting_iterator(size_type{0}),
+                        thrust::make_counting_iterator(size_type{input.size()}),
+                        gather_map.begin<size_type>(),
+                        [  NULL_INDEX,
+                           following,
+                           row_offset = device_agg_op.row_offset ] __device__ (auto i) {
+                             return (row_offset > following[i]) ? NULL_INDEX : (i + row_offset);
+                           });
+    }
+    else
+    {
+      thrust::transform(rmm::exec_policy(stream),
+                        thrust::make_counting_iterator(size_type{0}),
+                        thrust::make_counting_iterator(size_type{input.size()}),
+                        gather_map.begin<size_type>(),
+                        [  NULL_INDEX,
+                           preceding,
+                           row_offset = device_agg_op.row_offset ] __device__ (auto i) {
+                             return (row_offset > (preceding[i]-1)) ? NULL_INDEX : (i - row_offset);
+                           });
+    }
+
+    return std::move(
+            cudf::gather(table_view{std::vector<column_view>{input}}, 
+                         gather_map_column->view(),
+                         out_of_bounds_policy::NULLIFY
+                        )->release()[0]);
+
+    /*
+    if (true)
+    {
+      return cudf::concatenate(std::vector<column_view>{input, default_outputs});
     }
 
     auto output = make_fixed_width_column(
@@ -780,6 +830,7 @@ struct rolling_window_launcher {
     output->set_null_count(output->size() - valid_count);
 
     return output;
+    */
   }
 
   // Deals with invalid column and/or aggregation options
@@ -803,7 +854,7 @@ struct rolling_window_launcher {
   {
     CUDF_FAIL(
       "Aggregation operator and/or input type combination is invalid: "
-      "LEAD/LAG supported only on fixed-width types");
+      "LEAD/LAG supported only on fixed-width types"); // TODO: Remove!
   }
 
   template <aggregation::Kind op,
