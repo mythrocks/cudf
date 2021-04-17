@@ -27,12 +27,15 @@
 #include <cudf/detail/aggregation/aggregation.cuh>
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/detail/copy.hpp>
+#include <cudf/detail/gather.cuh>
 #include <cudf/detail/gather.hpp>
 #include <cudf/detail/get_value.cuh>
 #include <cudf/detail/groupby/sort_helper.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/scatter.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/device_operators.cuh>
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/dictionary/dictionary_factories.hpp>
@@ -808,9 +811,6 @@ struct rolling_window_launcher {
     auto gather_map_column = 
       make_fixed_width_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
     auto gather_map = gather_map_column->mutable_view();
-    // auto scatter_map = something_similar;
-
-    // auto const NULL_INDEX = size_type{input.size()} + 1; // Out of bounds, for nullification.
 
     thrust::transform(rmm::exec_policy(stream),
                       thrust::make_counting_iterator(size_type{0}),
@@ -819,11 +819,55 @@ struct rolling_window_launcher {
                       lead_lag_gather_map_builder<op, PrecedingWindowIterator, FollowingWindowIterator>
                         {input.size(), device_agg_op.row_offset, preceding, following});
 
-    return std::move(
-            cudf::gather(table_view{std::vector<column_view>{input}}, 
+    auto output_with_nulls = cudf::gather(table_view{std::vector<column_view>{input}}, 
                          gather_map_column->view(),
                          out_of_bounds_policy::NULLIFY
-                        )->release()[0]);
+                        ); // TODO: Use detail API instead.
+
+    if (default_outputs.is_empty()) {
+      return std::move(output_with_nulls->release()[0]);
+    }
+
+    // Must scatter defaults.
+    auto NULL_INDEX = size_type{input.size() + 1};
+
+    // auto scatter_map_column =
+      // make_fixed_width_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
+    // auto scatter_map = scatter_map_column->mutable_view();
+    auto scatter_map = rmm::device_uvector<size_type>(input.size(), stream, mr);
+
+    auto end = thrust::copy_if(rmm::exec_policy(stream),
+                               thrust::make_counting_iterator(size_type{0}),
+                               thrust::make_counting_iterator(size_type{input.size()}),
+                               scatter_map.begin(),
+                               [NULL_INDEX, gather = gather_map.begin<size_type>() ] __device__ (auto i) 
+                               { return NULL_INDEX == gather[i]; }
+                               );
+
+    std::cout << "Scatter map actual size = " << (end - scatter_map.begin()) << std::endl;
+
+    scatter_map.resize(end - scatter_map.begin(), stream); // TODO: Avoid resize? Just track end.
+    
+    // TODO: Handle empty scatter map.
+
+    if (scatter_map.is_empty())
+    {
+      return std::move(output_with_nulls->release()[0]);
+    }
+
+    auto gathered_defaults = cudf::detail::gather(table_view{std::vector<column_view>{default_outputs}},
+                                                  scatter_map.begin(),
+                                                  scatter_map.end(),
+                                                  out_of_bounds_policy::DONT_CHECK,
+                                                  stream);
+
+    auto scattered_results = cudf::detail::scatter(table_view{std::vector<column_view>{gathered_defaults->release()[0]->view()}},
+                                                   scatter_map.begin(),
+                                                   scatter_map.end(),
+                                                   table_view{std::vector<column_view>{output_with_nulls->release()[0]->view()}},
+                                                   false,
+                                                   stream);
+    return std::move(scattered_results->release()[0]);
 
     /*
     auto output = make_fixed_width_column(
