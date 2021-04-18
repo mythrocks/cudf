@@ -757,14 +757,21 @@ struct rolling_window_launcher {
     template <aggregation::Kind o = op, CUDF_ENABLE_IF(o == aggregation::LEAD)>
     size_type __device__ operator()(size_type i)
     {
-      return (_row_offset > _following[i]) ? NULL_INDEX : (i + _row_offset);
+      // Note: grouped_*rolling_window() trims preceding/following to
+      // the beginning/end of the group. `rolling_window()` does not.
+      // Must trim _following[i] so as not to go past the column end.
+      auto following = min(_following[i], _input_size - i - 1);
+      return (_row_offset > following) ? NULL_INDEX : (i + _row_offset);
     }
 
     template <aggregation::Kind o = op, CUDF_ENABLE_IF(o == aggregation::LAG)>
     size_type __device__ operator()(size_type i)
     {
-
-      return (_row_offset > (_preceding[i]-1)) ? NULL_INDEX : (i - _row_offset);
+      // Note: grouped_*rolling_window() trims preceding/following to
+      // the beginning/end of the group. `rolling_window()` does not.
+      // Must trim _preceding[i] so as not to go past the column start.
+      auto preceding = min(_preceding[i], i+1);
+      return (_row_offset > (preceding-1)) ? NULL_INDEX : (i - _row_offset);
     }
 
     private:
@@ -818,7 +825,7 @@ struct rolling_window_launcher {
                       gather_map.begin<size_type>(),
                       lead_lag_gather_map_builder<op, PrecedingWindowIterator, FollowingWindowIterator>
                         {input.size(), device_agg_op.row_offset, preceding, following});
-
+    
     auto output_with_nulls = cudf::gather(table_view{std::vector<column_view>{input}}, 
                          gather_map_column->view(),
                          out_of_bounds_policy::NULLIFY
@@ -844,12 +851,8 @@ struct rolling_window_launcher {
                                { return NULL_INDEX == gather[i]; }
                                );
 
-    std::cout << "Scatter map actual size = " << (end - scatter_map.begin()) << std::endl;
-
     scatter_map.resize(end - scatter_map.begin(), stream); // TODO: Avoid resize? Just track end.
     
-    // TODO: Handle empty scatter map.
-
     if (scatter_map.is_empty())
     {
       return std::move(output_with_nulls->release()[0]);
@@ -868,28 +871,6 @@ struct rolling_window_launcher {
                                                    false,
                                                    stream);
     return std::move(scattered_results->release()[0]);
-
-    /*
-    auto output = make_fixed_width_column(
-      target_type(input.type(), op), input.size(), mask_state::UNINITIALIZED, stream, mr);
-
-    cudf::mutable_column_view output_view = output->mutable_view();
-    auto valid_count =
-      kernel_launcher<T, agg_op, op, PrecedingWindowIterator, FollowingWindowIterator>(
-        input,
-        default_outputs,
-        output_view,
-        preceding_window_begin,
-        following_window_begin,
-        min_periods,
-        agg,
-        device_agg_op,
-        stream);
-
-    output->set_null_count(output->size() - valid_count);
-
-    return output;
-    */
   }
 
   // Deals with invalid column and/or aggregation options
