@@ -538,3 +538,71 @@ TEST_F(LeadLagWindowTest, LeadLagWithoutFixedWidthInput)
                                             cudf::make_lead_aggregation(4)),
                cudf::logic_error);
 }
+
+template <typename T>
+struct TypedListsLeadLagWindowTest : public cudf::test::BaseFixture {
+};
+
+TYPED_TEST_CASE(TypedListsLeadLagWindowTest, TypesForTest);
+
+TYPED_TEST(TypedListsLeadLagWindowTest, LeadLagBasics)
+{
+  using T = TypeParam;
+  using lcw = lists_column_wrapper<T, int32_t>;
+
+  auto const input_col =
+    // fixed_width_column_wrapper<T>{0, 1, 2, 3, 4, 5, 0, 10, 20, 30, 40, 50}.release();
+    lcw{
+      {0,0},
+      {1,1}, 
+      {2,2},
+      {3,3,3},
+      {4,4,4,4},
+      {5,5,5,5,5},
+      {0,0},
+      {10,10}, 
+      {20,20},
+      {30,30,30},
+      {40,40,40,40},
+      {50,50,50,50,50},
+    }.release();
+
+  auto const grouping_key = fixed_width_column_wrapper<int32_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
+  auto const grouping_keys = cudf::table_view{std::vector<cudf::column_view>{grouping_key}};
+
+  auto const preceding   = 4;
+  auto const following   = 3;
+  auto const min_periods = 1;
+
+  auto lead_3_output_col = cudf::grouped_rolling_window(grouping_keys,
+                                                        input_col->view(),
+                                                        preceding,
+                                                        following,
+                                                        min_periods,
+                                                        cudf::make_lead_aggregation(3));
+
+  std::cout << "Received :" << std::endl;
+  print(*lead_3_output_col);
+  /*
+  expect_columns_equivalent(
+    *lead_3_output_col,
+    fixed_width_column_wrapper<T>{{3, 4, 5, -1, -1, -1, 30, 40, 50, -1, -1, -1},
+                                  {1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0}}
+      .release()
+      ->view());
+
+  auto lag_2_output_col = cudf::grouped_rolling_window(grouping_keys,
+                                                       input_col->view(),
+                                                       preceding,
+                                                       following,
+                                                       min_periods,
+                                                       cudf::make_lag_aggregation(2));
+
+  expect_columns_equivalent(
+    *lag_2_output_col,
+    fixed_width_column_wrapper<T>{{-1, -1, 0, 1, 2, 3, -1, -1, 0, 10, 20, 30},
+                                  {0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1}}
+      .release()
+      ->view());
+      */
+}

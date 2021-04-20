@@ -788,7 +788,7 @@ struct rolling_window_launcher {
             aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
-  std::enable_if_t<cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width.
+  std::enable_if_t<// cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width.
                      (op == aggregation::LEAD || op == aggregation::LAG),
                    std::unique_ptr<column>>
   launch(column_view const& input,
@@ -873,6 +873,7 @@ struct rolling_window_launcher {
     return std::move(scattered_results->release()[0]);
   }
 
+  /*
   // Deals with invalid column and/or aggregation options
   template <typename T,
             typename agg_op,
@@ -896,6 +897,7 @@ struct rolling_window_launcher {
       "Aggregation operator and/or input type combination is invalid: "
       "LEAD/LAG supported only on fixed-width types"); // TODO: Remove!
   }
+  */
 
   template <aggregation::Kind op,
             typename PrecedingWindowIterator,
