@@ -852,6 +852,24 @@ struct rolling_window_launcher {
       return std::make_unique<column>(input, stream, mr);
     }
 
+    // Algorithm:
+    //
+    // 1. Construct gather_map with the LEAD/LAG offset applied to the indices.
+    //    E.g. A gather_map of:
+    //        {0, 1, 2, 3, ..., N-3, N-2, N-1} 
+    //    would select the input column, unchanged.
+    //
+    //    For LEAD(2), the following gather_map is used:
+    //        {3, 4, 5, 6, ..., N-1, NULL_INDEX, NULL_INDEX}
+    //    where `NULL_INDEX` selects `NULL` for the gather.
+    //    
+    //    Similarly, LAG(2) is implemented using the following gather_map:
+    //        {NULL_INDEX, NULL_INDEX, 0, 1, 2...}
+    //
+    // 2. Gather input column based on the gather_map.
+    // 3. If default outputs are available, scatter contents of default_outputs`
+    //    to all positions where nulls where gathered in step 2.
+
     auto static constexpr size_data_type = data_type{type_to_id<size_type>()};
 
     auto gather_map_column = 
@@ -877,9 +895,6 @@ struct rolling_window_launcher {
     // Must scatter defaults.
     auto NULL_INDEX = size_type{input.size() + 1};
 
-    // auto scatter_map_column =
-      // make_fixed_width_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
-    // auto scatter_map = scatter_map_column->mutable_view();
     auto scatter_map = rmm::device_uvector<size_type>(input.size(), stream, mr);
 
     auto end = thrust::copy_if(rmm::exec_policy(stream),
