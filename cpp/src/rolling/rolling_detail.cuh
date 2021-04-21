@@ -912,32 +912,6 @@ struct rolling_window_launcher {
     return std::move(scattered_results->release()[0]);
   }
 
-  /*
-  // Deals with invalid column and/or aggregation options
-  template <typename T,
-            typename agg_op,
-            aggregation::Kind op,
-            typename PrecedingWindowIterator,
-            typename FollowingWindowIterator>
-  std::enable_if_t<!(op == aggregation::LEAD || op == aggregation::LAG) ||
-                     !cudf::is_fixed_width<T>(),
-                   std::unique_ptr<column>>
-  launch(column_view const& input,
-         column_view const& default_outputs,
-         PrecedingWindowIterator preceding_window_begin,
-         FollowingWindowIterator following_window_begin,
-         size_type min_periods,
-         std::unique_ptr<aggregation> const& agg,
-         agg_op device_agg_op,
-         rmm::cuda_stream_view stream,
-         rmm::mr::device_memory_resource* mr)
-  {
-    CUDF_FAIL(
-      "Aggregation operator and/or input type combination is invalid: "
-      "LEAD/LAG supported only on fixed-width types"); // TODO: Remove!
-  }
-  */
-
   template <aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
