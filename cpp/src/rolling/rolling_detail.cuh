@@ -788,7 +788,46 @@ struct rolling_window_launcher {
             aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
-  std::enable_if_t<// cudf::is_fixed_width<T>() and // TODO: This should be for *not* fixed_width.
+  std::enable_if_t<cudf::is_fixed_width<T>() and
+                     (op == aggregation::LEAD || op == aggregation::LAG),
+                   std::unique_ptr<column>>
+  launch(column_view const& input,
+         column_view const& default_outputs,
+         PrecedingWindowIterator preceding,
+         FollowingWindowIterator following,
+         size_type min_periods,
+         std::unique_ptr<aggregation> const& agg,
+         agg_op const& device_agg_op,
+         rmm::cuda_stream_view stream,
+         rmm::mr::device_memory_resource* mr)
+  {
+    auto output = make_fixed_width_column(
+      target_type(input.type(), op), input.size(), mask_state::UNINITIALIZED, stream, mr);
+
+    cudf::mutable_column_view output_view = output->mutable_view();
+    auto valid_count =
+      kernel_launcher<T, agg_op, op, PrecedingWindowIterator, FollowingWindowIterator>(
+        input,
+        default_outputs,
+        output_view,
+        preceding,
+        following,
+        min_periods,
+        agg,
+        device_agg_op,
+        stream);
+
+    output->set_null_count(output->size() - valid_count);
+
+    return output;
+  }
+
+  template <typename T,
+            typename agg_op,
+            aggregation::Kind op,
+            typename PrecedingWindowIterator,
+            typename FollowingWindowIterator>
+  std::enable_if_t<!cudf::is_fixed_width<T>() and
                      (op == aggregation::LEAD || op == aggregation::LAG),
                    std::unique_ptr<column>>
   launch(column_view const& input,
