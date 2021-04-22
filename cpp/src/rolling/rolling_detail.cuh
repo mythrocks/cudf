@@ -897,16 +897,14 @@ struct rolling_window_launcher {
 
     auto scatter_map = rmm::device_uvector<size_type>(input.size(), stream, mr);
 
-    auto end = thrust::copy_if(rmm::exec_policy(stream),
-                               thrust::make_counting_iterator(size_type{0}),
-                               thrust::make_counting_iterator(size_type{input.size()}),
-                               scatter_map.begin(),
-                               [NULL_INDEX, gather = gather_map.begin<size_type>() ] __device__ (auto i) 
-                               { return NULL_INDEX == gather[i]; }
-                               );
+    auto scatter_map_end = thrust::copy_if(rmm::exec_policy(stream),
+                                           thrust::make_counting_iterator(size_type{0}),
+                                           thrust::make_counting_iterator(size_type{input.size()}),
+                                           scatter_map.begin(),
+                                           [NULL_INDEX, gather = gather_map.begin<size_type>() ] __device__ (auto i) 
+                                           { return NULL_INDEX == gather[i]; }
+                                          );
 
-    scatter_map.resize(end - scatter_map.begin(), stream); // TODO: Avoid resize? Just track end.
-    
     if (scatter_map.is_empty())
     {
       return std::move(output_with_nulls->release()[0]);
@@ -914,7 +912,7 @@ struct rolling_window_launcher {
 
     auto gathered_defaults = cudf::detail::gather(table_view{std::vector<column_view>{default_outputs}},
                                                   scatter_map.begin(),
-                                                  scatter_map.end(),
+                                                  scatter_map_end,
                                                   out_of_bounds_policy::DONT_CHECK,
                                                   stream);
 
