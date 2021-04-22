@@ -918,7 +918,7 @@ struct rolling_window_launcher {
 
     auto scattered_results = cudf::detail::scatter(table_view{std::vector<column_view>{gathered_defaults->release()[0]->view()}},
                                                    scatter_map.begin(),
-                                                   scatter_map.end(),
+                                                   scatter_map_end,
                                                    table_view{std::vector<column_view>{output_with_nulls->release()[0]->view()}},
                                                    false,
                                                    stream);
