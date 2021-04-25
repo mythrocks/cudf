@@ -741,8 +741,7 @@ struct rolling_window_launcher {
   template <aggregation::Kind op,
             typename PrecedingWindowIterator,
             typename FollowingWindowIterator>
-  struct lead_lag_gather_map_builder
-  {
+  struct lead_lag_gather_map_builder {
     lead_lag_gather_map_builder(size_type input_size,
                                 size_type row_offset,
                                 PrecedingWindowIterator preceding,
@@ -752,7 +751,8 @@ struct rolling_window_launcher {
         _row_offset{row_offset},
         _preceding{preceding},
         _following{following}
-    {}
+    {
+    }
 
     template <aggregation::Kind o = op, CUDF_ENABLE_IF(o == aggregation::LEAD)>
     size_type __device__ operator()(size_type i)
@@ -770,17 +770,16 @@ struct rolling_window_launcher {
       // Note: grouped_*rolling_window() trims preceding/following to
       // the beginning/end of the group. `rolling_window()` does not.
       // Must trim _preceding[i] so as not to go past the column start.
-      auto preceding = min(_preceding[i], i+1);
-      return (_row_offset > (preceding-1)) ? NULL_INDEX : (i - _row_offset);
+      auto preceding = min(_preceding[i], i + 1);
+      return (_row_offset > (preceding - 1)) ? NULL_INDEX : (i - _row_offset);
     }
 
-    private:
-
-      size_type _input_size;
-      size_type NULL_INDEX;
-      size_type _row_offset;
-      PrecedingWindowIterator _preceding;
-      FollowingWindowIterator _following;
+   private:
+    size_type _input_size;
+    size_type NULL_INDEX;
+    size_type _row_offset;
+    PrecedingWindowIterator _preceding;
+    FollowingWindowIterator _following;
   };
 
   template <typename T,
@@ -842,7 +841,7 @@ struct rolling_window_launcher {
   {
     CUDF_EXPECTS(default_outputs.type().id() == input.type().id(),
                  "Defaults column type must match input column.");  // Because LEAD/LAG.
-                
+
     CUDF_EXPECTS(default_outputs.is_empty() || (input.size() == default_outputs.size()),
                  "Number of defaults must match input column.");
 
@@ -856,72 +855,77 @@ struct rolling_window_launcher {
     //
     // 1. Construct gather_map with the LEAD/LAG offset applied to the indices.
     //    E.g. A gather_map of:
-    //        {0, 1, 2, 3, ..., N-3, N-2, N-1} 
+    //        {0, 1, 2, 3, ..., N-3, N-2, N-1}
     //    would select the input column, unchanged.
     //
     //    For LEAD(2), the following gather_map is used:
     //        {3, 4, 5, 6, ..., N-1, NULL_INDEX, NULL_INDEX}
     //    where `NULL_INDEX` selects `NULL` for the gather.
-    //    
+    //
     //    Similarly, LAG(2) is implemented using the following gather_map:
     //        {NULL_INDEX, NULL_INDEX, 0, 1, 2...}
     //
     // 2. Gather input column based on the gather_map.
     // 3. If default outputs are available, scatter contents of default_outputs`
     //    to all positions where nulls where gathered in step 2.
+    //
+    // Note: Step 3 can be switched to use `copy_if_else()`, once it supports
+    //       nested types.
 
     auto static constexpr size_data_type = data_type{type_to_id<size_type>()};
 
-    auto gather_map_column = 
-      make_fixed_width_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
+    auto gather_map_column =
+      make_numeric_column(size_data_type, input.size(), mask_state::UNALLOCATED, stream);
     auto gather_map = gather_map_column->mutable_view();
 
-    thrust::transform(rmm::exec_policy(stream),
-                      thrust::make_counting_iterator(size_type{0}),
-                      thrust::make_counting_iterator(size_type{input.size()}),
-                      gather_map.begin<size_type>(),
-                      lead_lag_gather_map_builder<op, PrecedingWindowIterator, FollowingWindowIterator>
-                        {input.size(), device_agg_op.row_offset, preceding, following});
-    
-    auto output_with_nulls = cudf::gather(table_view{std::vector<column_view>{input}}, 
-                         gather_map_column->view(),
-                         out_of_bounds_policy::NULLIFY
-                        ); // TODO: Use detail API instead.
+    thrust::transform(
+      rmm::exec_policy(stream),
+      thrust::make_counting_iterator(size_type{0}),
+      thrust::make_counting_iterator(size_type{input.size()}),
+      gather_map.begin<size_type>(),
+      lead_lag_gather_map_builder<op, PrecedingWindowIterator, FollowingWindowIterator>{
+        input.size(), device_agg_op.row_offset, preceding, following});
 
-    if (default_outputs.is_empty()) {
-      return std::move(output_with_nulls->release()[0]);
-    }
+    auto output_with_nulls = cudf::gather(table_view{std::vector<column_view>{input}},
+                                          gather_map_column->view(),
+                                          out_of_bounds_policy::NULLIFY);
+
+    if (default_outputs.is_empty()) { return std::move(output_with_nulls->release()[0]); }
 
     // Must scatter defaults.
     auto NULL_INDEX = size_type{input.size() + 1};
 
-    auto scatter_map = rmm::device_uvector<size_type>(input.size(), stream, mr);
+    auto scatter_map = rmm::device_uvector<size_type>(input.size(), stream);
 
-    auto scatter_map_end = thrust::copy_if(rmm::exec_policy(stream),
-                                           thrust::make_counting_iterator(size_type{0}),
-                                           thrust::make_counting_iterator(size_type{input.size()}),
-                                           scatter_map.begin(),
-                                           [NULL_INDEX, gather = gather_map.begin<size_type>() ] __device__ (auto i) 
-                                           { return NULL_INDEX == gather[i]; }
-                                          );
+    // Find all indices at which LEAD/LAG computed nulls previously.
+    auto scatter_map_end =
+      thrust::copy_if(rmm::exec_policy(stream),
+                      thrust::make_counting_iterator(size_type{0}),
+                      thrust::make_counting_iterator(size_type{input.size()}),
+                      scatter_map.begin(),
+                      [NULL_INDEX, gather = gather_map.begin<size_type>()] __device__(auto i) {
+                        return NULL_INDEX == gather[i];
+                      });
 
-    if (scatter_map.is_empty())
-    {
-      return std::move(output_with_nulls->release()[0]);
-    }
+    // Bail early, if all LEAD/LAG computations succeeded. No defaults need be substituted.
+    if (scatter_map.is_empty()) { return std::move(output_with_nulls->release()[0]); }
 
-    auto gathered_defaults = cudf::detail::gather(table_view{std::vector<column_view>{default_outputs}},
-                                                  scatter_map.begin(),
-                                                  scatter_map_end,
-                                                  out_of_bounds_policy::DONT_CHECK,
-                                                  stream);
+    // Gather only those default values that are to be substituted.
+    auto gathered_defaults =
+      cudf::detail::gather(table_view{std::vector<column_view>{default_outputs}},
+                           scatter_map.begin(),
+                           scatter_map_end,
+                           out_of_bounds_policy::DONT_CHECK,
+                           stream);
 
-    auto scattered_results = cudf::detail::scatter(table_view{std::vector<column_view>{gathered_defaults->release()[0]->view()}},
-                                                   scatter_map.begin(),
-                                                   scatter_map_end,
-                                                   table_view{std::vector<column_view>{output_with_nulls->release()[0]->view()}},
-                                                   false,
-                                                   stream);
+    // Scatter defaults into locations where LEAD/LAG computed nulls.
+    auto scattered_results = cudf::detail::scatter(
+      table_view{std::vector<column_view>{gathered_defaults->release()[0]->view()}},
+      scatter_map.begin(),
+      scatter_map_end,
+      table_view{std::vector<column_view>{output_with_nulls->release()[0]->view()}},
+      false,
+      stream);
     return std::move(scattered_results->release()[0]);
   }
 
