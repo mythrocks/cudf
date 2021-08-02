@@ -168,11 +168,11 @@ flatten_nested_columns(table_view const& input,
                        std::vector<null_order> const& null_precedence,
                        column_nullability nullability)
 {
-  std::vector<std::unique_ptr<column>> validity_as_column;
   auto const has_struct = std::any_of(
     input.begin(), input.end(), [](auto const& col) { return col.type().id() == type_id::STRUCT; });
   if (not has_struct)
-    return std::make_tuple(input, column_order, null_precedence, std::move(validity_as_column));
+    return std::make_tuple(
+      input, column_order, null_precedence, std::vector<std::unique_ptr<column>>{});
 
   return flattened_table{input, column_order, null_precedence, nullability}();
 }
