@@ -27,14 +27,6 @@
 
 namespace cudf::test {
 
-struct StructUtilitiesTest : BaseFixture {};
-
-TEST_F(StructUtilitiesTest, flatten_lists)
-{
-  // TODO: What's expected to happen here?
-  // Expected: Busted.
-}
-
 /**
  * @brief Round-trip input table through flatten/unflatten,
  *        verify that the table remains equivalent.
@@ -46,66 +38,53 @@ void flatten_unflatten_compare(table_view const& input_table)
   auto [flattened, _, __, ___] = flatten_nested_columns(input_table,
                                                      {}, {},
                                                      column_nullability::FORCE);
-
-  // auto unflattened = unflatten_nested_columns(flattened, input_table, 
-  
-}
-
-TEST_F(StructUtilitiesTest, flatten_structs)
-{
-  using namespace cudf;
-  using iterators::null_at;
-  using ints = fixed_width_column_wrapper<int32_t>;
-
-  auto child_0       = ints{{0, 1, 2, 3, 4, 5}, null_at(0)};
-  auto child_1       = ints{0, 1, 2, 3, 4, 5};
-  auto structs_col = structs_column_wrapper{{child_0, child_1}, null_at(2)};
-  auto struct_o_structs_col = structs_column_wrapper{{structs_col}};
-
-  auto ints_col    = ints{{0, 2, 4, 6, 8, 10}, null_at(2)};
-
-  auto input_table = table_view{{ints_col, struct_o_structs_col}};
-  auto agg_values  = ints{1,1,1,1,1,1}.release();
-  std::cout << "Input table: " << std::endl;
-  for (int i{0}; i<input_table.num_columns(); ++i)
-  {
-    print(input_table.column(i));
-  }
-  std::cout << std::endl;
-
-  auto flattened = structs::detail::flatten_nested_columns(input_table,
-                                                           {},
-                                                           {},
-                                                           structs::detail::column_nullability::FORCE);
-  auto& output_table = std::get<0>(flattened);
-  auto& nullability_vectors = std::get<3>(flattened);
-
-  std::cout << "Output table: " << std::endl;
-  for (auto col : output_table)
-  {
-      print(col);
-  }
-
-  std::cout << "\nNullability vectors: " << std::endl;
-  for (auto& x : nullability_vectors)
-  {
-      print(x->view());
-  }
-
-  std::cout << "\nAttempting reconstruction." << std::endl;
-
-  std::unique_ptr<cudf::table> flattened_table = std::make_unique<cudf::table>(output_table);
-  
-  auto unflattened = structs::detail::unflatten_nested_columns(std::move(flattened_table), 
-                                                               input_table/*, 
-                                                               std::move(nullability_vectors)*/);
-
-  std::cout << "Unflattened column: " << std::endl;
-  for (auto col : unflattened->view()) {
-    print(col);
-  }
+  auto unflattened = unflatten_nested_columns(std::make_unique<cudf::table>(flattened), input_table);
 
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(input_table, unflattened->view());
+}
+
+using namespace cudf;
+using iterators::null_at;
+
+struct StructUtilitiesTest : BaseFixture {};
+
+template <typename T>
+struct TypedStructUtilitiesTest : StructUtilitiesTest {};
+
+TYPED_TEST_CASE(TypedStructUtilitiesTest, FixedWidthTypes);
+
+TYPED_TEST(TypedStructUtilitiesTest, SingleLevelStruct)
+{
+  using T = TypeParam; // TypeParam;
+  using nums = fixed_width_column_wrapper<T, int32_t>;
+  using strings = strings_column_wrapper;
+  using structs = structs_column_wrapper;
+
+  auto member_0 = nums{{0,1,22,333,4444,55555,666666}, null_at(0)};
+  auto member_1 = strings{{"", "1", "22", "333", "4444", "55555", "666666"}, null_at(1)}; 
+  auto structs_col = structs{{member_0, member_1}, null_at(2)};
+  auto nums_col    = nums{{0,1,2,3,4,5,6}, null_at(6)};
+
+  flatten_unflatten_compare(cudf::table_view{{nums_col, structs_col}});
+}
+
+TYPED_TEST(TypedStructUtilitiesTest, StructOfStruct)
+{
+  using T = TypeParam; // TypeParam;
+  using nums = fixed_width_column_wrapper<T, int32_t>;
+  using strings = strings_column_wrapper;
+  using structs = structs_column_wrapper;
+
+  auto nums_col    = nums{{0,1,2,3,4,5,6}, null_at(6)};
+
+  auto member_0_0 = nums{{0,1,22,333,4444,55555,666666}, null_at(0)};
+  auto member_0_1 = strings{{"", "1", "22", "333", "4444", "55555", "666666"}, null_at(1)}; 
+  auto structs_0_col = structs{{member_0_0, member_0_1}, null_at(2)};
+
+  auto member_1_0 = nums{{0,1,22,333,4444,55555,666666}, null_at(3)};
+  auto struct_of_structs_col = structs{{member_1_0, structs_0_col}, null_at(4)};
+
+  flatten_unflatten_compare(cudf::table_view{{nums_col, struct_of_structs_col}});
 }
 
 }  // namespace cudf::test
