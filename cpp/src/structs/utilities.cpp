@@ -16,8 +16,10 @@
 
 #include <thrust/iterator/counting_iterator.h>
 
+#include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/structs/structs_column_view.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/unary.hpp>
 #include <cudf/utilities/error.hpp>
@@ -157,7 +159,7 @@ struct flattened_table {
 };
 
 /**
- * @copydoc cudf::detail::flatten_nested_columns
+ * @copydoc cudf::structs::detail::flatten_nested_columns
  */
 std::tuple<table_view,
            std::vector<order>,
@@ -175,6 +177,118 @@ flatten_nested_columns(table_view const& input,
       input, column_order, null_precedence, std::vector<std::unique_ptr<column>>{});
 
   return flattened_table{input, column_order, null_precedence, nullability}();
+}
+
+using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
+using column_index_t = typename vector_of_columns::size_type;
+
+std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
+                                               column_index_t& current_index,
+                                               cudf::column_view blueprint,
+                                               vector_of_columns& struct_null_vectors,
+                                               column_index_t& current_null_vector_index)
+{
+  std::cout << "CALEB: unflatten_struct()!" << std::endl;
+  // "Consume" columns from `flattened`, starting at `current_index`,
+  // based on the provided `blueprint` struct col. Recurse for struct children.
+  CUDF_EXPECTS(blueprint.type().id() == type_id::STRUCT, 
+               "Expected blueprint column to be a STRUCT column.");
+
+  CUDF_EXPECTS(current_index < flattened.size(), "STRUCT column can't have 0 children.");
+
+  auto num_rows = flattened[current_index]->size();
+
+  std::cout << "CALEB: Num struct rows: " << num_rows << std::endl;
+  std::cout << "CALEB: current_index == " << current_index << std::endl;
+  std::cout << "CALEB: current_null_vector_index == " << current_null_vector_index << std::endl;
+
+  // cudf::flatten_nested_columns() executes depth first, and serializes the struct null vector
+  // before the child/member columns.
+  // E.g. STRUCT_1< STRUCT_2< A, B >, C > is flattened to:
+  //      1. Null Vector for STRUCT_1
+  //      2. Null Vector for STRUCT_2
+  //      3. Member STRUCT_2::A
+  //      4. Member STRUCT_2::B
+  //      5. Member STRUCT_1::C
+  //
+  // Extract null-vector *before* child columns are constructed.
+  auto struct_null_column_contents = flattened[current_index++]->release(); 
+
+  std::cout << "CALEB: Released null vector. current_null_vector_index advanced to " 
+            << current_null_vector_index << std::endl;
+
+  auto struct_members = vector_of_columns{};
+  struct_members.reserve(blueprint.num_children());
+
+  std::transform(blueprint.child_begin(),
+                 blueprint.child_end(),
+                 std::back_inserter(struct_members),
+                 [&flattened,
+                  &current_index,
+                  &struct_null_vectors,
+                  &current_null_vector_index] (auto member) { // TODO: Move out to separate class.
+                   return member.type().id() == type_id::STRUCT
+                     ? unflatten_struct(flattened, 
+                                        current_index, 
+                                        member, 
+                                        struct_null_vectors, 
+                                        current_null_vector_index)
+                     : std::move(flattened[current_index++]);
+                 });
+
+  return cudf::make_structs_column(num_rows,
+                                   std::move(struct_members),
+                                   UNKNOWN_NULL_COUNT, // Do count?
+                                   std::move(*struct_null_column_contents.null_mask)); // TODO: stream, mr?
+}
+
+/**
+ * @copydoc cudf::structs::detail::unflatten_nested_columns
+ */
+std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::table>&& flattened, 
+                                                      table_view const& blueprint,              
+                                                      std::vector<std::unique_ptr<cudf::column>>&& struct_null_vectors)
+{
+  auto const n_struct_columns = std::count_if(blueprint.begin(),
+                                              blueprint.end(),
+                                              [](auto const& col) { return col.type().id() == type_id::STRUCT; });
+
+  std::cout << "CALEB: Num Struct Columns at the top level: " << n_struct_columns << std::endl;
+  std::cout << "CALEB: Num null vectors: " << struct_null_vectors.size() << std::endl;
+  if (n_struct_columns == 0) 
+  {
+    return std::move(flattened); // Unchanged.
+  }
+
+  // There be struct columns.
+  // Requires null vectors for all struct input columns.
+  // TODO: Explore if blueprint's struct's has_nulls() should be used at all.
+  //       At first glance, no. `groupby.aggregate()` might have filtered out nulls.
+  CUDF_EXPECTS(n_struct_columns <= static_cast<decltype(n_struct_columns)>(struct_null_vectors.size()), 
+                "Cannot unflatten: Number of null vectors must match struct columns.");
+
+  auto flattened_columns = flattened->release();
+  auto current_idx = column_index_t{0};
+  auto current_null_vector_idx = column_index_t{0};
+
+  auto return_columns = vector_of_columns{};
+  std::transform(blueprint.begin(),
+                 blueprint.end(),
+                 std::back_inserter(return_columns),
+                 [&flattened_columns,
+                 &current_idx,
+                 &struct_null_vectors,
+                 &current_null_vector_idx](auto blueprint_column) { // TODO: Move out to separate class.
+                   return blueprint_column.type().id() == type_id::STRUCT
+                     ? unflatten_struct(flattened_columns, 
+                                         current_idx, 
+                                         blueprint_column, 
+                                         struct_null_vectors, 
+                                         current_null_vector_idx)
+                     : std::move(flattened_columns[current_idx++]);
+                 });
+  
+  return std::make_unique<cudf::table>(std::move(return_columns));
 }
 
 // Helper function to superimpose validity of parent struct
