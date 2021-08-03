@@ -23,23 +23,37 @@
 #include <cudf_test/type_lists.hpp>
 
 #include <cudf/detail/aggregation/aggregation.hpp>
-#include <cudf/groupby.hpp>
 #include <structs/utilities.hpp>
 
 namespace cudf::test {
 
-struct UtilitiesTest : BaseFixture {};
+struct StructUtilitiesTest : BaseFixture {};
 
-TEST_F(UtilitiesTest, flatten_lists)
+TEST_F(StructUtilitiesTest, flatten_lists)
 {
   // TODO: What's expected to happen here?
   // Expected: Busted.
 }
 
-TEST_F(UtilitiesTest, flatten_structs)
+/**
+ * @brief Round-trip input table through flatten/unflatten,
+ *        verify that the table remains equivalent.
+ */
+void flatten_unflatten_compare(table_view const& input_table)
+{
+  using namespace cudf::structs::detail;
+
+  auto [flattened, _, __, ___] = flatten_nested_columns(input_table,
+                                                     {}, {},
+                                                     column_nullability::FORCE);
+
+  // auto unflattened = unflatten_nested_columns(flattened, input_table, 
+  
+}
+
+TEST_F(StructUtilitiesTest, flatten_structs)
 {
   using namespace cudf;
-  using namespace cudf::groupby;
   using iterators::null_at;
   using ints = fixed_width_column_wrapper<int32_t>;
 
@@ -83,8 +97,8 @@ TEST_F(UtilitiesTest, flatten_structs)
   std::unique_ptr<cudf::table> flattened_table = std::make_unique<cudf::table>(output_table);
   
   auto unflattened = structs::detail::unflatten_nested_columns(std::move(flattened_table), 
-                                                               input_table, 
-                                                               std::move(nullability_vectors));
+                                                               input_table/*, 
+                                                               std::move(nullability_vectors)*/);
 
   std::cout << "Unflattened column: " << std::endl;
   for (auto col : unflattened->view()) {

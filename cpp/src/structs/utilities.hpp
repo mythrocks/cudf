@@ -102,8 +102,8 @@ flatten_nested_columns(table_view const& input,
  * @return std::unique_ptr<cudf::table> Unflattened table (with nested STRUCT columns) reconstructed based on `blueprint`.
  */
 std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::table>&& flattened,
-                                                      table_view const& blueprint,                   
-                                                      std::vector<std::unique_ptr<cudf::column>>&& struct_validity_vectors);
+                                                      table_view const& blueprint/*,                   
+                                                      std::vector<std::unique_ptr<cudf::column>>&& struct_validity_vectors*/);
 
 /**
  * @brief Pushdown nulls from a parent mask into a child column, using AND.
