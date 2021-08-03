@@ -19,6 +19,7 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 #include <cudf_test/iterator_utilities.hpp>
+#include <cudf_test/table_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
 #include <cudf/detail/aggregation/aggregation.hpp>
@@ -38,18 +39,28 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                vector_of_columns& struct_null_vectors,
                                                column_index_t& current_null_vector_index)
 {
+  std::cout << "CALEB: unflatten_struct()!" << std::endl;
   // "Consume" columns from `flattened`, starting at `current_index`,
   // based on the provided `blueprint` struct col. Recurse for struct children.
   CUDF_EXPECTS(blueprint.type().id() == type_id::STRUCT, 
                "Expected blueprint column to be a STRUCT column.");
 
-  CUDF_EXPECTS(not flattened.empty(), "STRUCT column can't have 0 children.");
+  CUDF_EXPECTS(current_index < flattened.size(), "STRUCT column can't have 0 children.");
 
-  auto num_rows = flattened.front()->size();
+  auto num_rows = flattened[current_index]->size();
 
+  std::cout << "CALEB: Num struct rows: " << num_rows << std::endl;
+  std::cout << "CALEB: current_index == " << current_index << std::endl;
+  std::cout << "CALEB: current_null_vector_index == " << current_null_vector_index << std::endl;
+
+  /*
   // Extract null-vector *before* child columns are constructed.
   // Child struct column null vectors appear *before* parent struct.
   auto struct_null_column_contents = struct_null_vectors[current_null_vector_index++]->release();
+  */
+  auto struct_null_column_contents = flattened[current_index++]->release(); 
+
+  std::cout << "CALEB: Released null vector. current_null_vector_index advanced to " << current_null_vector_index << std::endl;
 
   auto struct_members = vector_of_columns{};
   struct_members.reserve(blueprint.num_children());
@@ -83,6 +94,9 @@ std::unique_ptr<cudf::table> unflatten(std::unique_ptr<cudf::table>&& flattened,
   auto const n_struct_columns = std::count_if(blueprint.begin(),
                                               blueprint.end(),
                                               [](auto const& col) { return col.type().id() == type_id::STRUCT; });
+
+  std::cout << "CALEB: Num Struct Columns at the top level: " << n_struct_columns << std::endl;
+  std::cout << "CALEB: Num null vectors: " << struct_null_vectors.size() << std::endl;
   if (n_struct_columns == 0) 
   {
     return std::move(flattened); // Unchanged.
@@ -92,9 +106,8 @@ std::unique_ptr<cudf::table> unflatten(std::unique_ptr<cudf::table>&& flattened,
   // Requires null vectors for all struct input columns.
   // TODO: Explore if blueprint's struct's has_nulls() should be used at all.
   //       At first glance, no. `groupby.aggregate()` might have filtered out nulls.
-  CUDF_EXPECTS(n_struct_columns == static_cast<decltype(n_struct_columns)>(struct_null_vectors.size()), 
+  CUDF_EXPECTS(n_struct_columns <= static_cast<decltype(n_struct_columns)>(struct_null_vectors.size()), 
                 "Cannot unflatten: Number of null vectors must match struct columns.");
-
 
   auto flattened_columns = flattened->release();
   auto current_idx = column_index_t{0};
@@ -178,22 +191,11 @@ TEST_F(UtilitiesTest, flatten_structs)
                                std::move(nullability_vectors));
 
   std::cout << "Unflattened column: " << std::endl;
-  print(unflattened->view());
+  for (auto col : unflattened->view()) {
+    print(col);
+  }
 
-  /*
-  auto& null_cols  = std::get<3>(flattened);
-  auto  gby_input  = std::vector<column_view>{output_table.begin(), output_table.end()};
-  std::transform(null_cols.begin(), 
-                 null_cols.end(), 
-                 std::back_inserter(gby_input), 
-                 [&](auto const& col){ return col->view(); });
-  
-  auto gby = groupby::groupby{table_view{gby_input}, null_policy::INCLUDE, sorted::NO};
-
-  std::vector<std::unique_ptr<aggregation>> aggs;
-  aggs.emplace_back(make_sum_aggregation());
-  auto requests = std::vector<aggregation_request>{{aggregation_request{agg_values->view(), std::move(aggs)}}};
-  */
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(input_table, unflattened->view());
 }
 
 }  // namespace cudf::test
