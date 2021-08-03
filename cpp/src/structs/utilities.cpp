@@ -172,15 +172,52 @@ flatten_nested_columns(table_view const& input,
 {
   auto const has_struct = std::any_of(
     input.begin(), input.end(), [](auto const& col) { return col.type().id() == type_id::STRUCT; });
-  if (not has_struct)
+  if (not has_struct) {
     return std::make_tuple(
       input, column_order, null_precedence, std::vector<std::unique_ptr<column>>{});
+  }
 
   return flattened_table{input, column_order, null_precedence, nullability}();
 }
 
 using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
 using column_index_t = typename vector_of_columns::size_type;
+
+// Forward declaration, to enable recursion via `unflattener`.
+std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
+                                               column_index_t& current_index,
+                                               cudf::column_view const& blueprint);
+namespace
+{
+  /**
+   * @brief Helper functor to reconstruct STRUCT columns 
+   *        from its flattened member columns.
+   * 
+   */
+  class unflattener
+  {
+    public: 
+
+    unflattener(vector_of_columns& flattened_,
+                column_index_t& current_index_)
+      : flattened{flattened_},
+        current_index{current_index_}
+    {}
+
+    auto operator()(column_view const& blueprint)
+    {
+      return blueprint.type().id() == type_id::STRUCT
+        ? unflatten_struct(flattened, current_index, blueprint)
+        : std::move(flattened[current_index++]);
+    }
+
+    private:
+
+    vector_of_columns& flattened;
+    column_index_t& current_index;
+
+  }; // class unflattener;
+} // namespace;
 
 std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                column_index_t& current_index,
@@ -213,14 +250,7 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
   std::transform(blueprint.child_begin(),
                  blueprint.child_end(),
                  std::back_inserter(struct_members),
-                 [&flattened,
-                  &current_index] (auto member) { // TODO: Move out to separate class.
-                   return member.type().id() == type_id::STRUCT
-                     ? unflatten_struct(flattened, 
-                                        current_index, 
-                                        member)
-                     : std::move(flattened[current_index++]);
-                 });
+                 unflattener{flattened, current_index});
 
   return cudf::make_structs_column(num_rows,
                                    std::move(struct_members),
@@ -255,14 +285,7 @@ std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::tabl
   std::transform(blueprint.begin(),
                  blueprint.end(),
                  std::back_inserter(return_columns),
-                 [&flattened_columns,
-                  &current_idx](auto blueprint_column) { // TODO: Move out to separate class.
-                   return blueprint_column.type().id() == type_id::STRUCT
-                     ? unflatten_struct(flattened_columns, 
-                                         current_idx, 
-                                         blueprint_column)
-                     : std::move(flattened_columns[current_idx++]);
-                 });
+                 unflattener(flattened_columns, current_idx));
   
   return std::make_unique<cudf::table>(std::move(return_columns));
 }
