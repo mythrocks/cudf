@@ -181,42 +181,37 @@ flatten_nested_columns(table_view const& input,
 }
 
 using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
-using column_index_t = typename vector_of_columns::size_type;
+using column_index_t    = typename vector_of_columns::size_type;
 
-namespace
-{
+namespace {
 // Forward declaration, to enable recursion via `unflattener`.
 std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                column_index_t& current_index,
                                                cudf::column_view const& blueprint);
 /**
- * @brief Helper functor to reconstruct STRUCT columns 
+ * @brief Helper functor to reconstruct STRUCT columns
  *        from its flattened member columns.
- * 
+ *
  */
-class unflattener
-{
-  public: 
-
-  unflattener(vector_of_columns& flattened_,
-              column_index_t& current_index_)
-    : flattened{flattened_},
-      current_index{current_index_}
-  {}
+class unflattener {
+ public:
+  unflattener(vector_of_columns& flattened_, column_index_t& current_index_)
+    : flattened{flattened_}, current_index{current_index_}
+  {
+  }
 
   auto operator()(column_view const& blueprint)
   {
     return blueprint.type().id() == type_id::STRUCT
-      ? unflatten_struct(flattened, current_index, blueprint)
-      : std::move(flattened[current_index++]);
+             ? unflatten_struct(flattened, current_index, blueprint)
+             : std::move(flattened[current_index++]);
   }
 
-  private:
-
+ private:
   vector_of_columns& flattened;
   column_index_t& current_index;
 
-}; // class unflattener;
+};  // class unflattener;
 
 std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                column_index_t& current_index,
@@ -224,7 +219,7 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
 {
   // "Consume" columns from `flattened`, starting at `current_index`,
   // based on the provided `blueprint` struct col. Recurse for struct children.
-  CUDF_EXPECTS(blueprint.type().id() == type_id::STRUCT, 
+  CUDF_EXPECTS(blueprint.type().id() == type_id::STRUCT,
                "Expected blueprint column to be a STRUCT column.");
 
   CUDF_EXPECTS(current_index < flattened.size(), "STRUCT column can't have 0 children.");
@@ -241,7 +236,7 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
   //      5. Member STRUCT_1::C
   //
   // Extract null-vector *before* child columns are constructed.
-  auto struct_null_column_contents = flattened[current_index++]->release(); 
+  auto struct_null_column_contents = flattened[current_index++]->release();
 
   auto struct_members = vector_of_columns{};
   struct_members.reserve(blueprint.num_children());
@@ -253,34 +248,31 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
 
   return cudf::make_structs_column(num_rows,
                                    std::move(struct_members),
-                                   UNKNOWN_NULL_COUNT, // Do count?
+                                   UNKNOWN_NULL_COUNT,  // Do count?
                                    std::move(*struct_null_column_contents.null_mask));
 }
 
-bool is_struct(cudf::column_view const& col) 
-{ 
-  return col.type().id() == type_id::STRUCT; 
-}
+bool is_struct(cudf::column_view const& col) { return col.type().id() == type_id::STRUCT; }
 
 /**
- * @brief Check whether the specified column is of type LIST, 
+ * @brief Check whether the specified column is of type LIST,
  *        or any LISTs in its descendent columns.
- * 
+ *
  */
 bool is_or_has_lists(cudf::column_view const& col)
 {
   auto is_list = [](cudf::column_view const& col) { return col.type().id() == type_id::LIST; };
 
-  return is_list(col)
-      || (is_struct(col) && std::any_of(col.child_begin(), col.child_end(), is_or_has_lists));
+  return is_list(col) ||
+         (is_struct(col) && std::any_of(col.child_begin(), col.child_end(), is_or_has_lists));
 }
 
-} // namespace;
+}  // namespace
 
 /**
  * @copydoc cudf::structs::detail::unflatten_nested_columns
  */
-std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::table>&& flattened, 
+std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::table>&& flattened,
                                                       table_view const& blueprint)
 {
   // Bail, if LISTs are present.
@@ -289,9 +281,8 @@ std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::tabl
 
   // If there are no STRUCTs, unflattening is a NOOP.
   auto const has_structs = std::any_of(blueprint.begin(), blueprint.end(), is_struct);
-  if (not has_structs)
-  {
-    return std::move(flattened); // Unchanged.
+  if (not has_structs) {
+    return std::move(flattened);  // Unchanged.
   }
 
   // There be struct columns.
@@ -300,14 +291,14 @@ std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::tabl
   //       At first glance, no. `groupby.aggregate()` might have filtered out nulls.
 
   auto flattened_columns = flattened->release();
-  auto current_idx = column_index_t{0};
+  auto current_idx       = column_index_t{0};
 
   auto return_columns = vector_of_columns{};
   std::transform(blueprint.begin(),
                  blueprint.end(),
                  std::back_inserter(return_columns),
                  unflattener(flattened_columns, current_idx));
-  
+
   return std::make_unique<cudf::table>(std::move(return_columns));
 }
 
