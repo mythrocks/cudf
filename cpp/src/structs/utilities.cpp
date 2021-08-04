@@ -183,41 +183,40 @@ flatten_nested_columns(table_view const& input,
 using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
 using column_index_t = typename vector_of_columns::size_type;
 
+namespace
+{
 // Forward declaration, to enable recursion via `unflattener`.
 std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                column_index_t& current_index,
                                                cudf::column_view const& blueprint);
-namespace
+/**
+ * @brief Helper functor to reconstruct STRUCT columns 
+ *        from its flattened member columns.
+ * 
+ */
+class unflattener
 {
-  /**
-   * @brief Helper functor to reconstruct STRUCT columns 
-   *        from its flattened member columns.
-   * 
-   */
-  class unflattener
+  public: 
+
+  unflattener(vector_of_columns& flattened_,
+              column_index_t& current_index_)
+    : flattened{flattened_},
+      current_index{current_index_}
+  {}
+
+  auto operator()(column_view const& blueprint)
   {
-    public: 
+    return blueprint.type().id() == type_id::STRUCT
+      ? unflatten_struct(flattened, current_index, blueprint)
+      : std::move(flattened[current_index++]);
+  }
 
-    unflattener(vector_of_columns& flattened_,
-                column_index_t& current_index_)
-      : flattened{flattened_},
-        current_index{current_index_}
-    {}
+  private:
 
-    auto operator()(column_view const& blueprint)
-    {
-      return blueprint.type().id() == type_id::STRUCT
-        ? unflatten_struct(flattened, current_index, blueprint)
-        : std::move(flattened[current_index++]);
-    }
+  vector_of_columns& flattened;
+  column_index_t& current_index;
 
-    private:
-
-    vector_of_columns& flattened;
-    column_index_t& current_index;
-
-  }; // class unflattener;
-} // namespace;
+}; // class unflattener;
 
 std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
                                                column_index_t& current_index,
@@ -255,8 +254,28 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
   return cudf::make_structs_column(num_rows,
                                    std::move(struct_members),
                                    UNKNOWN_NULL_COUNT, // Do count?
-                                   std::move(*struct_null_column_contents.null_mask)); // TODO: stream, mr?
+                                   std::move(*struct_null_column_contents.null_mask));
 }
+
+bool is_struct(cudf::column_view const& col) 
+{ 
+  return col.type().id() == type_id::STRUCT; 
+}
+
+/**
+ * @brief Check whether the specified column is of type LIST, 
+ *        or any LISTs in its descendent columns.
+ * 
+ */
+bool is_or_has_lists(cudf::column_view const& col)
+{
+  auto is_list = [](cudf::column_view const& col) { return col.type().id() == type_id::LIST; };
+
+  return is_list(col)
+      || (is_struct(col) && std::any_of(col.child_begin(), col.child_end(), is_or_has_lists));
+}
+
+} // namespace;
 
 /**
  * @copydoc cudf::structs::detail::unflatten_nested_columns
@@ -264,11 +283,13 @@ std::unique_ptr<cudf::column> unflatten_struct(vector_of_columns& flattened,
 std::unique_ptr<cudf::table> unflatten_nested_columns(std::unique_ptr<cudf::table>&& flattened, 
                                                       table_view const& blueprint)
 {
-  auto const n_struct_columns = std::count_if(blueprint.begin(), // TODO: Switch to std::any().
-                                              blueprint.end(),
-                                              [](auto const& col) { return col.type().id() == type_id::STRUCT; });
+  // Bail, if LISTs are present.
+  auto const has_lists = std::any_of(blueprint.begin(), blueprint.end(), is_or_has_lists);
+  CUDF_EXPECTS(not has_lists, "Unflattening LIST columns is not supported.");
 
-  if (n_struct_columns == 0) 
+  // If there are no STRUCTs, unflattening is a NOOP.
+  auto const has_structs = std::any_of(blueprint.begin(), blueprint.end(), is_struct);
+  if (not has_structs)
   {
     return std::move(flattened); // Unchanged.
   }
