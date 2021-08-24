@@ -24,6 +24,7 @@
 
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <structs/utilities.hpp>
+#include "cudf/detail/null_mask.hpp"
 
 namespace cudf::test {
 
@@ -45,8 +46,11 @@ void flatten_unflatten_compare(table_view const& input_table)
 
 using namespace cudf;
 using iterators::null_at;
-using strings = strings_column_wrapper;
-using structs = structs_column_wrapper;
+using iterators::nulls_at;
+using iterators::no_nulls;
+using strings    = strings_column_wrapper;
+using dictionary = dictionary_column_wrapper<std::string>;
+using structs    = structs_column_wrapper;
 
 struct StructUtilitiesTest : BaseFixture {
 };
@@ -55,7 +59,7 @@ template <typename T>
 struct TypedStructUtilitiesTest : StructUtilitiesTest {
 };
 
-TYPED_TEST_CASE(TypedStructUtilitiesTest, FixedWidthTypes);
+TYPED_TEST_SUITE(TypedStructUtilitiesTest, FixedWidthTypes);
 
 TYPED_TEST(TypedStructUtilitiesTest, ListsAtTopLevelUnsupported)
 {
@@ -215,6 +219,66 @@ TYPED_TEST(TypedStructUtilitiesTest, ListsAreUnsupported)
 
   EXPECT_THROW(flatten_unflatten_compare(cudf::table_view{{structs_with_lists_col}}),
                cudf::logic_error);
+}
+
+struct SuperimposeTest : StructUtilitiesTest{};
+
+template <typename T>
+struct TypedSuperimposeTest : StructUtilitiesTest{};
+
+TYPED_TEST_SUITE(TypedSuperimposeTest, FixedWidthTypes);
+
+void test_non_struct_columns(cudf::column_view const& input)
+{
+  // superimpose_parent_nulls() on non-struct columns should return the input column, unchanged.
+  auto [superimposed, backing_validity_buffers] = cudf::structs::detail::superimpose_parent_nulls(input);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(input, superimposed);
+  EXPECT_TRUE(backing_validity_buffers.empty());
+}
+
+TYPED_TEST(TypedSuperimposeTest, NoStructInput)
+{
+  using T = TypeParam;
+
+  test_non_struct_columns(fixed_width_column_wrapper<T>{{6,5,4,3,2,1,0}, null_at(3)});
+  test_non_struct_columns(lists_column_wrapper<T, int32_t>{{{6,5},{4,3},{2,1},{0}}, null_at(3)});
+  test_non_struct_columns(strings{{"All", "The", "Leaves", "Are", "Brown"}, null_at(3)});
+  test_non_struct_columns(dictionary{{"All", "The", "Leaves", "Are", "Brown"}, null_at(3)});
+}
+
+TYPED_TEST(TypedSuperimposeTest, BasicStruct)
+{
+  using T     = TypeParam;
+  using nums  = fixed_width_column_wrapper<T, int32_t>;
+  using lists = lists_column_wrapper<T, int32_t>;
+
+  auto nums_member  = nums{{10, 11, 12, 13, 14, 15, 16}, nulls_at({3, 6})};
+  auto lists_member = lists{{{20,20}, {21,21}, {22,22}, {23,23}, {24,24}, {25,25}, {26,26}}, nulls_at({4, 5})};
+  auto structs_input = structs{{nums_member, lists_member}, no_nulls()}.release();
+
+  // Reset STRUCTs' null-mask. Mark first STRUCT row as null.
+  auto structs_view = structs_input->mutable_view();
+  cudf::detail::set_null_mask(structs_view.null_mask(), 0, 1, false);
+
+  // At this point, the STRUCT nulls aren't pushed down to members,
+  // even though the parent null-mask was modified.
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(0), nums{{10, 11, 12, 13, 14, 15, 16}, nulls_at({3, 6})});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(1), lists{{{20,20}, {21,21}, {22,22}, {23,23}, {24,24}, {25,25}, {26,26}}, nulls_at({4, 5})});
+
+  std::cout << "Inputs: " << std::endl;
+  print(structs_input->view());
+
+  auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(structs_view);
+
+  auto expected_nums_member  = nums{{10, 11, 12, 13, 14, 15, 16}, nulls_at({0, 3, 6})};
+  auto expected_lists_member = lists{{{20,20}, {21,21}, {22,22}, {23,23}, {24,24}, {25,25}, {26,26}}, nulls_at({0, 4, 5})};
+  auto expected_structs_output = structs{{expected_nums_member, expected_lists_member}, null_at(0)};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_output);
+
+  std::cout << "Output: " << std::endl;
+  print(output);
 }
 
 }  // namespace cudf::test

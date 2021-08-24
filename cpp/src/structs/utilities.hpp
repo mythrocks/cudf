@@ -18,6 +18,7 @@
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 namespace cudf {
 namespace structs {
@@ -122,6 +123,11 @@ void superimpose_parent_nulls(bitmask_type const* parent_null_mask,
                               column& child,
                               rmm::cuda_stream_view stream,
                               rmm::mr::device_memory_resource* mr);
+
+std::tuple<cudf::column_view, std::vector<rmm::device_buffer>> 
+superimpose_parent_nulls(column_view const& parent,
+                         rmm::cuda_stream_view stream = rmm::cuda_stream_default,
+                         rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace detail
 }  // namespace structs
