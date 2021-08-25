@@ -124,10 +124,10 @@ void superimpose_parent_nulls(bitmask_type const* parent_null_mask,
                               rmm::cuda_stream_view stream,
                               rmm::mr::device_memory_resource* mr);
 
-std::tuple<cudf::column_view, std::vector<rmm::device_buffer>> 
-superimpose_parent_nulls(column_view const& parent,
-                         rmm::cuda_stream_view stream = rmm::cuda_stream_default,
-                         rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+std::tuple<cudf::column_view, std::vector<rmm::device_buffer>> superimpose_parent_nulls(
+  column_view const& parent,
+  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace detail
 }  // namespace structs

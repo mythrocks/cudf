@@ -340,17 +340,14 @@ void superimpose_parent_nulls(bitmask_type const* parent_null_mask,
   }
 }
 
-namespace 
-{
-struct data_pointer_getter
-{
+namespace {
+struct data_pointer_getter {
   template <typename T>
   void* operator()(cudf::column_view const& col) const
   {
-    if constexpr(is_rep_layout_compatible<T>()) {
+    if constexpr (is_rep_layout_compatible<T>()) {
       return const_cast<void*>(reinterpret_cast<void const*>(col.data<T>()));
-    }
-    else {
+    } else {
       return nullptr;
     }
   }
@@ -360,24 +357,22 @@ void* get_data_pointer(cudf::column_view const& col)
 {
   return cudf::type_dispatcher(col.type(), data_pointer_getter{}, col);
 }
-};
+};  // namespace
 
-std::tuple<cudf::column_view, 
-           std::vector<rmm::device_buffer>> // 2nd tuple member is a longevity measure.
+std::tuple<cudf::column_view,
+           std::vector<rmm::device_buffer>>  // 2nd tuple member is a longevity measure.
 superimpose_parent_nulls(column_view const& parent,
                          rmm::cuda_stream_view stream,
                          rmm::mr::device_memory_resource* mr)
 {
-  if (parent.type().id() != type_id::STRUCT)
-  {
+  if (parent.type().id() != type_id::STRUCT) {
     // NOOP for non-STRUCT columns.
-    return std::make_tuple(parent, 
-                           std::vector<rmm::device_buffer>{});
+    return std::make_tuple(parent, std::vector<rmm::device_buffer>{});
   }
 
   auto ret_validity_buffers = std::vector<rmm::device_buffer>{};
   auto ret_children         = std::vector<cudf::column_view>{};
-  
+
   // For each child, clone child.
   // If (not parent.nullable()), adopt child column-view, regardless of whether it's nullable,
   //   but push_back only after its children have been processed and accounted for.
@@ -386,69 +381,67 @@ superimpose_parent_nulls(column_view const& parent,
   //   2. If (child.nullable()), bitwise_and() + child.set_null_mask(and_results).
   //   3. superimpose_parent_nulls(child). Copy returned child_view + any backing buffers.
 
-  for (int i{0}; i < parent.num_children(); ++i)
-  {
+  for (int i{0}; i < parent.num_children(); ++i) {
     auto child = parent.child(i);
 
-    if (not parent.nullable())
-    {
+    if (not parent.nullable()) {
+      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
+      ret_children.push_back(processed_child);
+      ret_validity_buffers.insert(ret_validity_buffers.end(),
+                                  std::make_move_iterator(backing_buffers.begin()),
+                                  std::make_move_iterator(backing_buffers.end()));
+    } else  // Parent is nullable.
+      if (not child.nullable()) {
+      // Child uses parent's validity.
+      child =
+        cudf::column_view(child.type(),
+                          child.size(),
+                          get_data_pointer(child),
+                          parent.null_mask(),
+                          cudf::UNKNOWN_NULL_COUNT,
+                          child.offset(),
+                          std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
+
+      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
+      ret_children.push_back(processed_child);
+      ret_validity_buffers.insert(ret_validity_buffers.end(),
+                                  std::make_move_iterator(backing_buffers.begin()),
+                                  std::make_move_iterator(backing_buffers.end()));
+    } else {
+      // Parent and child have null-masks.
+      auto parent_child_null_masks =
+        std::vector<cudf::bitmask_type const*>{parent.null_mask(), child.null_mask()};
+      ret_validity_buffers.push_back(
+        cudf::detail::bitmask_and(parent_child_null_masks,
+                                  std::vector<size_type>{parent.offset(), child.offset()},
+                                  child.size(),
+                                  stream,
+                                  mr));
+      child =
+        cudf::column_view(child.type(),
+                          child.size(),
+                          get_data_pointer(child),
+                          reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
+                          cudf::UNKNOWN_NULL_COUNT,
+                          child.offset(),
+                          std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
       auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
       ret_children.push_back(processed_child);
       ret_validity_buffers.insert(ret_validity_buffers.end(),
                                   std::make_move_iterator(backing_buffers.begin()),
                                   std::make_move_iterator(backing_buffers.end()));
     }
-    else // Parent is nullable.
-    if (not child.nullable())
-    {
-      // Child uses parent's validity.
-      child = cudf::column_view(child.type(),
-                                child.size(),
-                                get_data_pointer(child),
-                                parent.null_mask(),
-                                cudf::UNKNOWN_NULL_COUNT,
-                                child.offset(),
-                                std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-
-      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
-      ret_children.push_back(processed_child);
-      ret_validity_buffers.insert(ret_validity_buffers.end(),
-                                  std::make_move_iterator(backing_buffers.begin()),
-                                  std::make_move_iterator(backing_buffers.end()));
-     }
-    else {
-      // Parent and child have null-masks.
-      auto parent_child_null_masks = std::vector<cudf::bitmask_type const*>{parent.null_mask(), child.null_mask()};
-      ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
-                                                               std::vector<size_type>{parent.offset(), 
-                                                                                      child.offset()}, 
-                                                               child.size(),
-                                                               stream,
-                                                               mr));
-      child = cudf::column_view(child.type(),
-                                child.size(),
-                                get_data_pointer(child),
-                                reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
-                                cudf::UNKNOWN_NULL_COUNT,
-                                child.offset(),
-                                std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
-      ret_children.push_back(processed_child);
-      ret_validity_buffers.insert(ret_validity_buffers.end(),
-                                  std::make_move_iterator(backing_buffers.begin()),
-                                  std::make_move_iterator(backing_buffers.end()));
-      }
   }
 
   // Make column view out of newly constructed column_views, and all the validity buffers.
-  
+
   return std::make_tuple(column_view(parent.type(),
                                      parent.size(),
                                      nullptr,
                                      parent.null_mask(),
-                                     parent.null_count(),      // TODO: Unknown? Postpone?
+                                     parent.null_count(),  // TODO: Unknown? Postpone?
                                      parent.offset(),
-                                     ret_children), 
+                                     ret_children),
                          std::move(ret_validity_buffers));
 }
 
