@@ -272,15 +272,16 @@ nums<T> make_nums_member(NullIter null_iter = no_nulls())
 template <typename T, typename NullIter>
 lists<T> make_lists_member(NullIter null_iter = no_nulls())
 {
-  return lists<T>{{{20, 20}, {21, 21}, {22, 22}, {23, 23}, {24, 24}, {25, 25}, {26, 26}}, null_iter};
+  return lists<T>{{{20, 20}, {21, 21}, {22, 22}, {23, 23}, {24, 24}, {25, 25}, {26, 26}},
+                  null_iter};
 }
 
 TYPED_TEST(TypedSuperimposeTest, BasicStruct)
 {
   using T = TypeParam;
 
-  auto nums_member = make_nums_member<T>(nulls_at({3,6}));
-  auto lists_member = make_lists_member<T>(nulls_at({4, 5}));
+  auto nums_member   = make_nums_member<T>(nulls_at({3, 6}));
+  auto lists_member  = make_lists_member<T>(nulls_at({4, 5}));
   auto structs_input = structs{{nums_member, lists_member}, no_nulls()}.release();
 
   // Reset STRUCTs' null-mask. Mark first STRUCT row as null.
@@ -289,15 +290,16 @@ TYPED_TEST(TypedSuperimposeTest, BasicStruct)
 
   // At this point, the STRUCT nulls aren't pushed down to members,
   // even though the parent null-mask was modified.
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(0), make_nums_member<T>(nulls_at({3,6})));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(1), make_lists_member<T>(nulls_at({4, 5})));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(0), make_nums_member<T>(nulls_at({3, 6})));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(structs_view.child(1),
+                                      make_lists_member<T>(nulls_at({4, 5})));
 
   auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(structs_view);
 
   // After superimpose_parent_nulls(), the struct nulls (i.e. at index-0) should have been pushed
   // down to the children. All members should have nulls at row-index 0.
-  auto expected_nums_member  = make_nums_member<T>(nulls_at({0,3,6}));
-  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 4, 5}));
+  auto expected_nums_member    = make_nums_member<T>(nulls_at({0, 3, 6}));
+  auto expected_lists_member   = make_lists_member<T>(nulls_at({0, 4, 5}));
   auto expected_structs_output = structs{{expected_nums_member, expected_lists_member}, null_at(0)};
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_output);
@@ -310,16 +312,17 @@ TYPED_TEST(TypedSuperimposeTest, NonNullableParentStruct)
 
   using T = TypeParam;
 
-  auto nums_member = make_nums_member<T>(nulls_at({3, 6}));
-  auto lists_member = make_lists_member<T>(nulls_at({4, 5}));
+  auto nums_member   = make_nums_member<T>(nulls_at({3, 6}));
+  auto lists_member  = make_lists_member<T>(nulls_at({4, 5}));
   auto structs_input = structs{{nums_member, lists_member}, no_nulls()}.release();
 
-  auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(structs_input->view());
+  auto [output, backing_buffers] =
+    cudf::structs::detail::superimpose_parent_nulls(structs_input->view());
 
   // After superimpose_parent_nulls(), none of the child structs should have changed,
   // because the parent had no nulls to begin with.
-  auto expected_nums_member = make_nums_member<T>(nulls_at({3,6}));
-  auto expected_lists_member = make_lists_member<T>(nulls_at({4,5}));
+  auto expected_nums_member    = make_nums_member<T>(nulls_at({3, 6}));
+  auto expected_lists_member   = make_lists_member<T>(nulls_at({4, 5}));
   auto expected_structs_output = structs{{expected_nums_member, expected_lists_member}, no_nulls()};
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_output);
@@ -328,13 +331,13 @@ TYPED_TEST(TypedSuperimposeTest, NonNullableParentStruct)
 TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNonNullable)
 {
   // Test with Struct<Struct>. If the parent struct is not nullable:
-  //   1. Non-struct members should remain unchanged. 
+  //   1. Non-struct members should remain unchanged.
   //   2. Member-structs should have their respective nulls pushed down into grandchildren.
 
   using T = TypeParam;
 
-  auto nums_member = make_nums_member<T>(nulls_at({3, 6}));
-  auto lists_member = make_lists_member<T>(nulls_at({4, 5}));
+  auto nums_member          = make_nums_member<T>(nulls_at({3, 6}));
+  auto lists_member         = make_lists_member<T>(nulls_at({4, 5}));
   auto outer_struct_members = std::vector<std::unique_ptr<cudf::column>>{};
   outer_struct_members.push_back(structs{{nums_member, lists_member}, no_nulls()}.release());
 
@@ -344,16 +347,19 @@ TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNonNullable)
 
   auto structs_of_structs = structs{std::move(outer_struct_members)}.release();
 
-  auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(structs_of_structs->view());
+  auto [output, backing_buffers] =
+    cudf::structs::detail::superimpose_parent_nulls(structs_of_structs->view());
 
-  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child structs.
-  // But the child struct column must push its nulls to its own children.
-  auto expected_nums_member = make_nums_member<T>(nulls_at({0,3,6}));
-  auto expected_lists_member = make_lists_member<T>(nulls_at({0,4,5}));
-  auto expected_structs = structs{{expected_nums_member, expected_lists_member}, null_at(0)};
+  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child
+  // structs. But the child struct column must push its nulls to its own children.
+  auto expected_nums_member  = make_nums_member<T>(nulls_at({0, 3, 6}));
+  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 4, 5}));
+  auto expected_structs      = structs{{expected_nums_member, expected_lists_member}, null_at(0)};
   auto expected_structs_of_structs = structs{{expected_structs}};
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
 }
+
+// TODO: Slice tests.
 
 }  // namespace cudf::test
