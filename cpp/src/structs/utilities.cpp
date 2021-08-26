@@ -347,7 +347,12 @@ struct data_pointer_getter {
   {
     if constexpr (is_rep_layout_compatible<T>()) {
       return const_cast<void*>(reinterpret_cast<void const*>(col.data<T>()));
-    } else {
+    }
+    else if constexpr(is_fixed_point<T>()) {
+      return operator()<typename T::rep>(col);
+    } 
+    else {
+      // List/Struct don't have data themselves.
       return nullptr;
     }
   }
