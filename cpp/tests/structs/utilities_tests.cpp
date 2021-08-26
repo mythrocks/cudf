@@ -362,9 +362,9 @@ TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNonNullable)
 
 TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNullable)
 {
-  // Test with Struct<Struct>. If the parent struct is not nullable:
-  //   1. Non-struct members should remain unchanged.
-  //   2. Member-structs should have their respective nulls pushed down into grandchildren.
+  // Test with Struct<Struct>. 
+  // If both the parent struct and the child are nullable, the leaf nodes should
+  // have a 3-way ANDed null-mask.
 
   using T = TypeParam;
 
@@ -397,6 +397,143 @@ TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNullable)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
 }
 
-// TODO: Slice tests.
+TYPED_TEST(TypedSuperimposeTest, Struct_Sliced)
+{
+  // Test with a sliced Struct<Struct>. 
+  // Ensure that superimpose_parent_nulls() produces the right results, even when the input is sliced.
+
+  using T = TypeParam;
+
+  auto nums_member          = make_nums_member<T>(nulls_at({3, 6}));
+  // auto lists_member         = make_lists_member<T>(nulls_at({4, 5}));
+  // outer_struct_members.push_back(structs{{nums_member, lists_member}, no_nulls()}.release());
+  auto structs_column = structs{{nums_member}, no_nulls()}.release();
+
+  // Reset STRUCTs' null-mask. Mark second STRUCT row as null.
+  auto structs_view = structs_column->mutable_view();
+  auto num_rows     = structs_view.size();
+  cudf::detail::set_null_mask(structs_view.null_mask(), 1, 2, false);
+
+  std::cout << "Unsliced input: " << std::endl;
+  print(structs_column->view());
+
+  // Slice off the first and last rows.
+  auto sliced_structs = cudf::slice(structs_column->view(), {1, num_rows-1})[0];
+  std::cout << "Sliced Input: " << std::endl;
+  print(sliced_structs);
+
+  auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(sliced_structs);
+
+  std::cout << "Output:" << std::endl;
+  print(output);
+
+  /*
+  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child
+  // structs. But the child struct column must push its nulls to its own children.
+  auto expected_nums_member  = make_nums_member<T>(nulls_at({0, 1, 3, 6}));
+  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 1, 4, 5}));
+  auto expected_structs      = structs{{expected_nums_member, expected_lists_member}, nulls_at({0,1})};
+  auto expected_structs_of_structs = structs{{expected_structs}, null_at(1)};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
+  */
+}
+
+TYPED_TEST(TypedSuperimposeTest, Struct_Unsliced)
+{
+  // Test with a sliced Struct<Struct>. 
+  // Ensure that superimpose_parent_nulls() produces the right results, even when the input is sliced.
+
+  using T = TypeParam;
+
+  auto nums_member          = make_nums_member<T>(nulls_at({3, 6}));
+  // auto lists_member         = make_lists_member<T>(nulls_at({4, 5}));
+  // outer_struct_members.push_back(structs{{nums_member, lists_member}, no_nulls()}.release());
+  auto structs_column = structs{{nums_member}, no_nulls()}.release();
+
+  // Reset STRUCTs' null-mask. Mark second STRUCT row as null.
+  auto structs_view = structs_column->mutable_view();
+  auto num_rows     = structs_view.size();
+  cudf::detail::set_null_mask(structs_view.null_mask(), 1, 2, false);
+
+  std::cout << "Unsliced input: " << std::endl;
+  print(structs_column->view());
+
+  // Slice off the first and last rows.
+  auto sliced_structs = cudf::slice(structs_column->view(), {1, num_rows-1})[0];
+  std::cout << "Sliced Input: " << std::endl;
+  print(sliced_structs);
+
+  auto [sliced_output, _] = cudf::structs::detail::superimpose_parent_nulls(sliced_structs);
+
+  std::cout << "Sliced Output:" << std::endl;
+  print(sliced_output);
+
+  auto [unsliced_output, __] = cudf::structs::detail::superimpose_parent_nulls(structs_column->view());
+
+  std::cout << "Unsliced Output:" << std::endl;
+  print(unsliced_output);
+
+  /*
+  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child
+  // structs. But the child struct column must push its nulls to its own children.
+  auto expected_nums_member  = make_nums_member<T>(nulls_at({0, 1, 3, 6}));
+  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 1, 4, 5}));
+  auto expected_structs      = structs{{expected_nums_member, expected_lists_member}, nulls_at({0,1})};
+  auto expected_structs_of_structs = structs{{expected_structs}, null_at(1)};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
+  */
+}
+
+TYPED_TEST(TypedSuperimposeTest, NestedStruct_Sliced)
+{
+  // Test with a sliced Struct<Struct>. 
+  // Ensure that superimpose_parent_nulls() produces the right results, even when the input is sliced.
+
+  using T = TypeParam;
+
+  auto nums_member          = make_nums_member<T>(nulls_at({3, 6}));
+  // auto lists_member         = make_lists_member<T>(nulls_at({4, 5}));
+  auto outer_struct_members = std::vector<std::unique_ptr<cudf::column>>{};
+  // outer_struct_members.push_back(structs{{nums_member, lists_member}, no_nulls()}.release());
+  outer_struct_members.push_back(structs{{nums_member}, no_nulls()}.release());
+
+  // Reset STRUCTs' null-mask. Mark first STRUCT row as null.
+  auto structs_view = outer_struct_members.back()->mutable_view();
+  auto num_rows     = structs_view.size();
+  cudf::detail::set_null_mask(structs_view.null_mask(), 0, 1, false);
+
+  auto structs_of_structs = structs{std::move(outer_struct_members), std::vector<bool>(num_rows, true)}.release();
+
+  // Modify STRUCT-of-STRUCT's null-mask. Mark second STRUCT row as null.
+  auto structs_of_structs_view = structs_of_structs->mutable_view();
+  cudf::detail::set_null_mask(structs_of_structs_view.null_mask(), 1, 2, false);
+
+  std::cout << "Unsliced input: " << std::endl;
+  print(structs_of_structs->view());
+
+  // Slice off the first and last rows.
+  auto sliced_structs_of_structs = cudf::slice(structs_of_structs->view(), {1, num_rows-1})[0];
+  std::cout << "Sliced Input: " << std::endl;
+  print(sliced_structs_of_structs);
+
+  auto [output, backing_buffers] =
+    cudf::structs::detail::superimpose_parent_nulls(sliced_structs_of_structs);
+
+  std::cout << "Output:" << std::endl;
+  print(output);
+
+  /*
+  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child
+  // structs. But the child struct column must push its nulls to its own children.
+  auto expected_nums_member  = make_nums_member<T>(nulls_at({0, 1, 3, 6}));
+  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 1, 4, 5}));
+  auto expected_structs      = structs{{expected_nums_member, expected_lists_member}, nulls_at({0,1})};
+  auto expected_structs_of_structs = structs{{expected_structs}, null_at(1)};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
+  */
+}
 
 }  // namespace cudf::test
