@@ -360,6 +360,43 @@ TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNonNullable)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
 }
 
+TYPED_TEST(TypedSuperimposeTest, NestedStruct_ChildNullable_ParentNullable)
+{
+  // Test with Struct<Struct>. If the parent struct is not nullable:
+  //   1. Non-struct members should remain unchanged.
+  //   2. Member-structs should have their respective nulls pushed down into grandchildren.
+
+  using T = TypeParam;
+
+  auto nums_member          = make_nums_member<T>(nulls_at({3, 6}));
+  auto lists_member         = make_lists_member<T>(nulls_at({4, 5}));
+  auto outer_struct_members = std::vector<std::unique_ptr<cudf::column>>{};
+  outer_struct_members.push_back(structs{{nums_member, lists_member}, no_nulls()}.release());
+
+  // Reset STRUCTs' null-mask. Mark first STRUCT row as null.
+  auto structs_view = outer_struct_members.back()->mutable_view();
+  auto num_rows     = structs_view.size();
+  cudf::detail::set_null_mask(structs_view.null_mask(), 0, 1, false);
+
+  auto structs_of_structs = structs{std::move(outer_struct_members), std::vector<bool>(num_rows, true)}.release();
+  
+  // Modify STRUCT-of-STRUCT's null-mask. Mark second STRUCT row as null.
+  auto structs_of_structs_view = structs_of_structs->mutable_view();
+  cudf::detail::set_null_mask(structs_of_structs_view.null_mask(), 1, 2, false);
+
+  auto [output, backing_buffers] =
+    cudf::structs::detail::superimpose_parent_nulls(structs_of_structs->view());
+
+  // After superimpose_parent_nulls(), outer-struct column should not have pushed nulls to child
+  // structs. But the child struct column must push its nulls to its own children.
+  auto expected_nums_member  = make_nums_member<T>(nulls_at({0, 1, 3, 6}));
+  auto expected_lists_member = make_lists_member<T>(nulls_at({0, 1, 4, 5}));
+  auto expected_structs      = structs{{expected_nums_member, expected_lists_member}, nulls_at({0,1})};
+  auto expected_structs_of_structs = structs{{expected_structs}, null_at(1)};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output, expected_structs_of_structs);
+}
+
 // TODO: Slice tests.
 
 }  // namespace cudf::test
