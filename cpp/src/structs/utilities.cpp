@@ -390,42 +390,46 @@ superimpose_parent_nulls(column_view const& parent,
   auto ret_validity_buffers = std::vector<rmm::device_buffer>{};
   auto ret_children         = std::vector<cudf::column_view>{};
 
+  // Function to rewrite child null mask.
   auto rewrite_child_mask   = [&](auto const& child_idx) {
     auto child = structs_column.get_sliced_child(child_idx);
-    if (not structs_column.nullable()) { return child; }
-    if (not child.nullable()) {
-      return cudf::column_view(child.type(),
-                               child.size(),
-                               get_head_pointer(child),
-                               structs_column.null_mask(),
-                               cudf::UNKNOWN_NULL_COUNT,
-                               child.offset(),
-                               std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-    }
 
-    // Both STRUCT and child are independently nullable.
-    // Parent and child have null-masks.
+    // If struct is not nullable, child null mask is retained. NOOP.
+    if (not structs_column.nullable()) { return child; }
+
     auto parent_child_null_masks =
       std::vector<cudf::bitmask_type const*>{structs_column.null_mask(), child.null_mask()};
 
-    // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus
-    // would start
-    //       at offset=0. The column-view attempts to apply its offset() to both the _data and the
-    //       _null_mask(). It would be better to AND the bits from the beginning, and apply
-    //       offset() uniformly.
-    // TODO: Alternatively, construct a big enough buffer, and use inplace_bitwise_and.
-    ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
-                                                             std::vector<size_type>{0, 0},
-                                                             child.offset() + child.size(),
-                                                             stream,
-                                                             mr));
+    auto new_child_mask = [&]{
+      if (child.nullable()) {
+        // Both STRUCT and child are nullable. AND() for the child's new null mask.
+        //
+        // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus
+        // would start at offset=0. The column-view attempts to apply its offset() to both the _data 
+        // and the _null_mask(). It would be better to AND the bits from the beginning, and apply
+        // offset() uniformly.
+        // Alternatively, one could construct a big enough buffer, and use inplace_bitwise_and.
+        ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
+                                                                std::vector<size_type>{0, 0},
+                                                                child.offset() + child.size(),
+                                                                stream,
+                                                                mr));
+        return reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data());
+      }
+      else {
+        // Child is not nullable. Use parent STRUCT's null mask.
+        return structs_column.null_mask();
+      }
+    }();
+
     return cudf::column_view(child.type(),
                              child.size(),
                              get_head_pointer(child),
-                             reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
+                             new_child_mask,
                              cudf::UNKNOWN_NULL_COUNT,
                              child.offset(),
                              std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
+ 
   };
 
   auto child_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0), rewrite_child_mask);
