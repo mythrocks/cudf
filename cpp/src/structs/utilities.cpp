@@ -417,19 +417,21 @@ superimpose_parent_nulls(column_view const& parent,
       // Parent and child have null-masks.
       auto parent_child_null_masks =
         std::vector<cudf::bitmask_type const*>{structs_column.null_mask(), child.null_mask()};
-      
-      // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus would start
-      //       at offset=0. The column-view attempts to apply its offset() to both the _data and the _null_mask().
-      //       It would be better to AND the bits from the beginning, and apply offset() uniformly.
+
+      // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus
+      // would start
+      //       at offset=0. The column-view attempts to apply its offset() to both the _data and the
+      //       _null_mask(). It would be better to AND the bits from the beginning, and apply
+      //       offset() uniformly.
       // TODO: Alternatively, construct a big enough buffer, and use inplace_bitwise_and.
-      ret_validity_buffers.push_back(
-        cudf::detail::bitmask_and(parent_child_null_masks,
-                                  std::vector<size_type>{0, 0},
-                                  child.offset() + child.size(),
-                                  stream,
-                                  mr));
-      
-      child = cudf::column_view(child.type(),
+      ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
+                                                               std::vector<size_type>{0, 0},
+                                                               child.offset() + child.size(),
+                                                               stream,
+                                                               mr));
+
+      child =
+        cudf::column_view(child.type(),
                           child.size(),
                           get_head_pointer(child),
                           reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
