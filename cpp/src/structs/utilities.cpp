@@ -343,6 +343,13 @@ void superimpose_parent_nulls(bitmask_type const* parent_null_mask,
 }
 
 namespace {
+
+/**
+ * @brief Functor to fetch a column-view's `head()` pointer.
+ *
+ * Required because `column_view::head<T>()` is a function template
+ * that necessitates type dispatch.
+ */
 struct head_pointer_getter {
   template <typename T>
   void* operator()(cudf::column_view const& col) const
@@ -358,6 +365,9 @@ struct head_pointer_getter {
   }
 };
 
+/**
+ * @brief Utility to fetch a column_view's `head()` pointer as a `void*`.
+ */
 void* get_head_pointer(cudf::column_view const& col)
 {
   return cudf::type_dispatcher(col.type(), head_pointer_getter{}, col);

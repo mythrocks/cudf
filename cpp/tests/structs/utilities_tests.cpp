@@ -484,16 +484,16 @@ TYPED_TEST(TypedSuperimposeTest, NestedStruct_Sliced)
   // After slice(), the null masks will be:
   // STRUCT<STRUCT>: 11101
   // STRUCT:         11110
-  // nums_member:    11011
-  // lists_member:   00111
+  // nums_member:    11010
+  // lists_member:   00110
 
   auto [output, backing_buffers] = cudf::structs::detail::superimpose_parent_nulls(sliced_structs);
 
   // After superimpose_parent_nulls(), the null masks will be:
   // STRUCT<STRUCT>: 11101
   // STRUCT:         11100
-  // nums_member:    11001
-  // lists_member:   00101
+  // nums_member:    11000
+  // lists_member:   00100
 
   // Construct expected columns using structs_column_wrapper, which should push the parent nulls
   // down automatically. Then, slice() off the ends.
