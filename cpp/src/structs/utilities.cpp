@@ -364,17 +364,6 @@ void* get_head_pointer(cudf::column_view const& col)
 }
 };  // namespace
 
-// TODO: CALEB: DELETEME:
-template <typename T>
-T get_device_val(void const* p)
-{
-  auto value = T{0};
-  CUDA_TRY(cudaMemcpy(&value, p, sizeof(T), ::cudaMemcpyDeviceToHost));
-  cudaDeviceSynchronize();
-  return value;
-}
-// TODO: CALEB: DELETEME.
-
 std::tuple<cudf::column_view,
            std::vector<rmm::device_buffer>>  // 2nd tuple member is a longevity measure.
 superimpose_parent_nulls(column_view const& parent,
@@ -402,7 +391,6 @@ superimpose_parent_nulls(column_view const& parent,
     auto child = structs_column.get_sliced_child(i);
 
     if (not structs_column.nullable()) {
-      std::cout << "CALEB: STRUCT column is not nullable!" << std::endl;
       auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
       ret_children.push_back(processed_child);
       ret_validity_buffers.insert(ret_validity_buffers.end(),
@@ -426,12 +414,6 @@ superimpose_parent_nulls(column_view const& parent,
                                   std::make_move_iterator(backing_buffers.begin()),
                                   std::make_move_iterator(backing_buffers.end()));
     } else {
-      // TODO: CALEB: DELETEME!
-      std::cout << "CALEB: Both parent and child have null-masks!" << std::endl;
-      std::cout << "CALEB: Parent row count: " << structs_column.size() << " Child count: " << child.size() << std::endl; 
-      std::cout << "CALEB: Parent offset: " << structs_column.offset() << " Child offset: " << child.offset() << std::endl; 
-      // TODO: CALEB: DELETEME!
-
       // Parent and child have null-masks.
       auto parent_child_null_masks =
         std::vector<cudf::bitmask_type const*>{structs_column.null_mask(), child.null_mask()};
@@ -446,10 +428,6 @@ superimpose_parent_nulls(column_view const& parent,
                                   child.offset() + child.size(),
                                   stream,
                                   mr));
-      std::cout << "CALEB: New Parent null-mask: \t" << std::bitset<8*sizeof(bitmask_type)>{get_device_val<bitmask_type>(structs_column.null_mask())} << std::endl;
-      std::cout << "CALEB: New Child null-mask: \t" << std::bitset<8*sizeof(bitmask_type)>{get_device_val<bitmask_type>(child.null_mask())} << std::endl;      
-      std::cout << "CALEB: New Anded null-mask: \t" << std::bitset<8*sizeof(bitmask_type)>{get_device_val<bitmask_type>(ret_validity_buffers.back().data())} << std::endl;      
-      // std::cout << "CALEB: B4 Child data value: \t" << get_device_val<int32_t>(get_head_pointer(child)) << std::endl;      
       
       child = cudf::column_view(child.type(),
                           child.size(),
@@ -458,8 +436,6 @@ superimpose_parent_nulls(column_view const& parent,
                           cudf::UNKNOWN_NULL_COUNT,
                           child.offset(),
                           std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-
-      // std::cout << "CALEB: B4 Child data value: \t" << get_device_val<int32_t>(get_head_pointer(child)) << std::endl;      
 
       auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
       ret_children.push_back(processed_child);
