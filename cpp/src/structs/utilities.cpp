@@ -385,77 +385,61 @@ superimpose_parent_nulls(column_view const& parent,
     return std::make_tuple(parent, std::vector<rmm::device_buffer>{});
   }
 
+  auto structs_column = structs_column_view{parent};
+
   auto ret_validity_buffers = std::vector<rmm::device_buffer>{};
   auto ret_children         = std::vector<cudf::column_view>{};
 
-  // For each child, clone child.
-  // If (not parent.nullable()), adopt child column-view, regardless of whether it's nullable,
-  //   but push_back only after its children have been processed and accounted for.
-  // If (parent.nullable()),
-  //   1. If (not child.nullable()), child.set_null_mask(parent.null_mask).
-  //   2. If (child.nullable()), bitwise_and() + child.set_null_mask(and_results).
-  //   3. superimpose_parent_nulls(child). Copy returned child_view + any backing buffers.
-
-  auto structs_column = structs_column_view{parent};
-  for (int i{0}; i < structs_column.num_children(); ++i) {
-    auto child = structs_column.get_sliced_child(i);
-
-    if (not structs_column.nullable()) {
-      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
-      ret_children.push_back(processed_child);
-      ret_validity_buffers.insert(ret_validity_buffers.end(),
-                                  std::make_move_iterator(backing_buffers.begin()),
-                                  std::make_move_iterator(backing_buffers.end()));
-    } else  // Parent is nullable.
-      if (not child.nullable()) {
-      // Child uses parent's validity.
-      child =
-        cudf::column_view(child.type(),
-                          child.size(),
-                          get_head_pointer(child),
-                          parent.null_mask(),
-                          cudf::UNKNOWN_NULL_COUNT,
-                          child.offset(),
-                          std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-
-      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
-      ret_children.push_back(processed_child);
-      ret_validity_buffers.insert(ret_validity_buffers.end(),
-                                  std::make_move_iterator(backing_buffers.begin()),
-                                  std::make_move_iterator(backing_buffers.end()));
-    } else {
-      // Parent and child have null-masks.
-      auto parent_child_null_masks =
-        std::vector<cudf::bitmask_type const*>{structs_column.null_mask(), child.null_mask()};
-
-      // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus
-      // would start
-      //       at offset=0. The column-view attempts to apply its offset() to both the _data and the
-      //       _null_mask(). It would be better to AND the bits from the beginning, and apply
-      //       offset() uniformly.
-      // TODO: Alternatively, construct a big enough buffer, and use inplace_bitwise_and.
-      ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
-                                                               std::vector<size_type>{0, 0},
-                                                               child.offset() + child.size(),
-                                                               stream,
-                                                               mr));
-
-      child =
-        cudf::column_view(child.type(),
-                          child.size(),
-                          get_head_pointer(child),
-                          reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
-                          cudf::UNKNOWN_NULL_COUNT,
-                          child.offset(),
-                          std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
-
-      auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
-      ret_children.push_back(processed_child);
-      ret_validity_buffers.insert(ret_validity_buffers.end(),
-                                  std::make_move_iterator(backing_buffers.begin()),
-                                  std::make_move_iterator(backing_buffers.end()));
+  auto rewrite_child_mask   = [&](auto const& child_idx) {
+    auto child = structs_column.get_sliced_child(child_idx);
+    if (not structs_column.nullable()) { return child; }
+    if (not child.nullable()) {
+      return cudf::column_view(child.type(),
+                               child.size(),
+                               get_head_pointer(child),
+                               structs_column.null_mask(),
+                               cudf::UNKNOWN_NULL_COUNT,
+                               child.offset(),
+                               std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
     }
-  }
+
+    // Both STRUCT and child are independently nullable.
+    // Parent and child have null-masks.
+    auto parent_child_null_masks =
+      std::vector<cudf::bitmask_type const*>{structs_column.null_mask(), child.null_mask()};
+
+    // Note: ANDing only [offset(), offset()+size()) would not work. The null-mask produced thus
+    // would start
+    //       at offset=0. The column-view attempts to apply its offset() to both the _data and the
+    //       _null_mask(). It would be better to AND the bits from the beginning, and apply
+    //       offset() uniformly.
+    // TODO: Alternatively, construct a big enough buffer, and use inplace_bitwise_and.
+    ret_validity_buffers.push_back(cudf::detail::bitmask_and(parent_child_null_masks,
+                                                             std::vector<size_type>{0, 0},
+                                                             child.offset() + child.size(),
+                                                             stream,
+                                                             mr));
+    return cudf::column_view(child.type(),
+                             child.size(),
+                             get_head_pointer(child),
+                             reinterpret_cast<bitmask_type const*>(ret_validity_buffers.back().data()),
+                             cudf::UNKNOWN_NULL_COUNT,
+                             child.offset(),
+                             std::vector<cudf::column_view>{child.child_begin(), child.child_end()});
+  };
+
+  auto child_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0), rewrite_child_mask);
+  auto child_end   = child_begin + structs_column.num_children();
+  
+  std::for_each(child_begin, 
+                child_end,
+                [&](auto const& child) {
+                  auto [processed_child, backing_buffers] = superimpose_parent_nulls(child, stream, mr);
+                  ret_children.push_back(processed_child);
+                  ret_validity_buffers.insert(ret_validity_buffers.end(),
+                                              std::make_move_iterator(backing_buffers.begin()),
+                                              std::make_move_iterator(backing_buffers.end()));
+                });
 
   // Make column view out of newly constructed column_views, and all the validity buffers.
 
