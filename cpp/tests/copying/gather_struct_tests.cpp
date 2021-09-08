@@ -84,7 +84,7 @@ struct column_wrapper_constructor<std::string, std::string> {
 };
 
 template <typename ElementTo,
-          typename SourceElementT = ElementTo, 
+          typename SourceElementT     = ElementTo,
           typename InputValidityIter  = decltype(null_at(0)),
           typename StructValidityIter = InputValidityIter>
 auto get_expected_column(std::vector<SourceElementT> const& input_values,
@@ -100,28 +100,29 @@ auto get_expected_column(std::vector<SourceElementT> const& input_values,
 
       auto i = gather_map[gather_index];  // Index into input_values.
 
-      return (i >= 0 && i < static_cast<int>(input_values.size())) &&
-             struct_validity[i] &&
+      return (i >= 0 && i < static_cast<int>(input_values.size())) && struct_validity[i] &&
              input_validity[i];
     };
 
   auto expected_row_count = gather_map.size();
-  auto gather_iter = cudf::detail::make_counting_transform_iterator(
+  auto gather_iter        = cudf::detail::make_counting_transform_iterator(
     0, [is_valid, &input_values, &gather_map](auto i) {
       return is_valid(i) ? input_values[gather_map[i]] : SourceElementT{};
     });
 
   return column_wrapper_constructor<ElementTo, SourceElementT>()(
-           gather_iter,
-           gather_iter + expected_row_count,
-           cudf::detail::make_counting_transform_iterator(0, is_valid));
+    gather_iter,
+    gather_iter + expected_row_count,
+    cudf::detail::make_counting_transform_iterator(0, is_valid));
 }
 
 auto do_gather(column_view const& input, gather_map_t const& gather_map)
 {
-  return std::move(gather(table_view{{input}}, 
-                          fixed_width_column_wrapper<offset_type>(gather_map.begin(), gather_map.end()),
-                          out_of_bounds_policy::NULLIFY)->release()[0]);
+  return std::move(
+    gather(table_view{{input}},
+           fixed_width_column_wrapper<offset_type>(gather_map.begin(), gather_map.end()),
+           out_of_bounds_policy::NULLIFY)
+      ->release()[0]);
 }
 }  // namespace
 
@@ -144,9 +145,9 @@ TYPED_TEST(TypedStructGatherTest, TestSimpleStructGather)
 
   // Assemble struct column.
   auto const struct_validity = null_at(5);
-  auto const struct_column = [&] {
+  auto const struct_column   = [&] {
     auto names_member    = strings_column_wrapper{names.begin(), names.end(), names_validity};
-    auto ages_member     = numerics<TypeParam>{ages.begin(), ages.end(), ages_validity}; 
+    auto ages_member     = numerics<TypeParam>{ages.begin(), ages.end(), ages_validity};
     auto is_human_member = bools{is_human.begin(), is_human.end(), is_human_validity};
     return structs_column_wrapper{{names_member, ages_member, is_human_member}, struct_validity};
   }();
@@ -157,16 +158,19 @@ TYPED_TEST(TypedStructGatherTest, TestSimpleStructGather)
   auto const output = do_gather(struct_column, gather_map);
 
   auto const expected_output = [&] {
-    auto names_member    = get_expected_column<std::string>(names, names_validity, struct_validity, gather_map);
-    auto ages_member     = get_expected_column<TypeParam, int32_t>(ages, ages_validity, struct_validity, gather_map);
-    auto is_human_member = get_expected_column<bool>(std::vector<bool>(is_human.begin(), is_human.end()),
-                                                     is_human_validity,
-                                                     struct_validity,
-                                                     gather_map);
+    auto names_member =
+      get_expected_column<std::string>(names, names_validity, struct_validity, gather_map);
+    auto ages_member =
+      get_expected_column<TypeParam, int32_t>(ages, ages_validity, struct_validity, gather_map);
+    auto is_human_member =
+      get_expected_column<bool>(std::vector<bool>(is_human.begin(), is_human.end()),
+                                is_human_validity,
+                                struct_validity,
+                                gather_map);
     return structs_column_wrapper{{names_member, ages_member, is_human_member}, null_at(0)};
-   }();
+  }();
 
-   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output->view(), expected_output);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output->view(), expected_output);
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfLists)
@@ -437,4 +441,4 @@ TYPED_TEST(TypedStructGatherTest, TestEmptyGather)
   expect_columns_equivalent(*expected_structs_column, gathered_struct_col);
 }
 
-} // namespace cudf::test;
+}  // namespace cudf::test
