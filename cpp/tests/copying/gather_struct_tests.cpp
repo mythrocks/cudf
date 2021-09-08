@@ -49,7 +49,10 @@ using bools             = fixed_width_column_wrapper<bool, int32_t>;
 template <typename T>
 using numerics = fixed_width_column_wrapper<T, int32_t>;
 
-auto constexpr null_index = std::numeric_limits<offset_type>::min();
+template <typename T>
+using lists = lists_column_wrapper<T, int32_t>;
+
+auto constexpr null_index = std::numeric_limits<offset_type>::max();
 
 namespace cudf::test {
 struct StructGatherTest : public BaseFixture {
@@ -146,9 +149,9 @@ TYPED_TEST(TypedStructGatherTest, TestSimpleStructGather)
   // Assemble struct column.
   auto const struct_validity = null_at(5);
   auto const struct_column   = [&] {
-    auto names_member    = strings_column_wrapper{names.begin(), names.end(), names_validity};
-    auto ages_member     = numerics<TypeParam>{ages.begin(), ages.end(), ages_validity};
-    auto is_human_member = bools{is_human.begin(), is_human.end(), is_human_validity};
+    auto names_member    = strings_column_wrapper(names.begin(), names.end(), names_validity);
+    auto ages_member     = numerics<TypeParam>(ages.begin(), ages.end(), ages_validity);
+    auto is_human_member = bools(is_human.begin(), is_human.end(), is_human_validity);
     return structs_column_wrapper{{names_member, ages_member, is_human_member}, struct_validity};
   }();
 
@@ -167,6 +170,46 @@ TYPED_TEST(TypedStructGatherTest, TestSimpleStructGather)
                                 is_human_validity,
                                 struct_validity,
                                 gather_map);
+    return structs_column_wrapper{{names_member, ages_member, is_human_member}, null_at(0)};
+  }();
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output->view(), expected_output);
+}
+
+TYPED_TEST(TypedStructGatherTest, TestNullifyOnNonNullInput)
+{
+  // Test that the null masks of the struct output (and its children) are set correctly,
+  // for an input struct column whose members are not nullable.
+
+  // 1. String "names" column.
+  auto const names =
+    std::vector<std::string>{"Vimes", "Carrot", "Angua", "Cheery", "Detritus", "Slant"};
+
+  // 2. Numeric "ages" column.
+  auto const ages = std::vector<int32_t>{5, 10, 15, 20, 25, 30};
+
+  // 3. Boolean "is_human" column.
+  auto const is_human = {true, true, false, false, false, false};
+
+  // Assemble struct column.
+  auto const struct_column = [&] {
+    auto names_member    = strings_column_wrapper(names.begin(), names.end());
+    auto ages_member     = fixed_width_column_wrapper<TypeParam, int32_t>(ages.begin(), ages.end());
+    auto is_human_member = bools(is_human.begin(), is_human.end());
+    return structs_column_wrapper({names_member, ages_member, is_human_member});
+  }();
+
+  // Gather to new struct column.
+  auto const gather_map = gather_map_t{null_index, 4, 3, 2, 1};
+
+  auto const output = do_gather(struct_column, gather_map);
+
+  auto const expected_output = [&] {
+    auto names_member = get_expected_column<std::string>(names, no_nulls(), no_nulls(), gather_map);
+    auto ages_member =
+      get_expected_column<TypeParam, int32_t>(ages, no_nulls(), no_nulls(), gather_map);
+    auto is_human_member = get_expected_column<bool>(
+      std::vector<bool>(is_human.begin(), is_human.end()), no_nulls(), no_nulls(), gather_map);
     return structs_column_wrapper{{names_member, ages_member, is_human_member}, null_at(0)};
   }();
 
