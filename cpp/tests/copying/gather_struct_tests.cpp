@@ -246,8 +246,8 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfLists)
     return do_gather(list_column_before_gathering, gather_map);
   }();
 
-  expect_columns_equivalent(expected_gathered_list_column.view(),
-                            gathered_structs->view().child(0));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_gathered_list_column->view(),
+                                      gathered_structs->view().child(0));
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
@@ -273,7 +273,7 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
   }();
 
   // Gather to new struct column.
-  auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1, 7, 3};
+  auto const gather_map = gather_map_t{null_index, 4, 3, 2, 1, 7, 3};
 
   auto const gathered_structs = do_gather(structs_column, gather_map);
 
@@ -285,8 +285,8 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
     return do_gather(list_column_before_gathering, gather_map);
   }();
 
-  expect_columns_equivalent(expected_gathered_list_column->view(),
-                            gathered_structs->view().child(0));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_gathered_list_column->view(),
+                                      gathered_structs->view().child(0));
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructs)
@@ -294,93 +294,73 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructs)
   // Testing gather() on struct<struct<numeric>>
 
   auto const numeric_column_exemplar = []() {
-    return fixed_width_column_wrapper<TypeParam, int32_t>{
-      {5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75},
-      cudf::detail::make_counting_transform_iterator(0, [](auto i) { return !(i % 3); })};
+    return numerics<TypeParam>{{5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75},
+                               nulls_at({0, 3, 6, 9, 12, 15})};
   };
 
-  auto numeric_column = numeric_column_exemplar();
-  auto structs_column = structs_column_wrapper{{numeric_column}};
-
-  auto const struct_of_structs_column = structs_column_wrapper{{structs_column}}.release();
+  auto const struct_of_structs_column = [&] {
+    auto numeric_column = numeric_column_exemplar();
+    auto structs_column = structs_column_wrapper{{numeric_column}};
+    return structs_column_wrapper{{structs_column}};
+  }();
 
   // Gather to new struct column.
-  auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1, 7, 3};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
-
-  auto const gathered_table =
-    cudf::gather(cudf::table_view{std::vector<cudf::column_view>{struct_of_structs_column->view()}},
-                 gather_map_col->view());
-
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const gather_map       = gather_map_t{null_index, 4, 3, 2, 1, 7, 3};
+  auto const gathered_structs = do_gather(struct_of_structs_column, gather_map);
 
   // Verify that the underlying numeric column presents as if
   // it had itself been gathered individually.
 
-  auto const numeric_column_before_gathering = numeric_column_exemplar().release();
-  auto const expected_gathered_column =
-    cudf::gather(
-      cudf::table_view{std::vector<cudf::column_view>{numeric_column_before_gathering->view()}},
-      gather_map_col->view())
-      ->get_column(0);
+  auto const expected_gathered_column = [&] {
+    auto const numeric_column_before_gathering = numeric_column_exemplar();
+    return do_gather(numeric_column_before_gathering, gather_map);
+  }();
 
-  expect_columns_equivalent(expected_gathered_column, gathered_struct_col.child(0).child(0).view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_gathered_column->view(),
+                                      gathered_structs->view().child(0).child(0));
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListOfStructs)
 {
-  // Testing gather() on struct<struct<numeric>>
+  // Testing gather() on struct<list<struct<numeric>>>
 
-  auto const numeric_column_exemplar = []() {
-    return fixed_width_column_wrapper<TypeParam, int32_t>{
-      {5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75}};
-  };
+  auto const struct_of_list_of_structs = [&] {
+    auto numeric_column =
+      numerics<TypeParam>{{5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75}};
+    auto structs_column = structs{{numeric_column}}.release();
+    auto list_of_structs_column =
+      cudf::make_lists_column(7,
+                              offsets{0, 2, 4, 6, 8, 10, 12, 14}.release(),
+                              std::move(structs_column),
+                              cudf::UNKNOWN_NULL_COUNT,
+                              {});
 
-  auto numeric_column         = numeric_column_exemplar();
-  auto structs_column         = structs_column_wrapper{{numeric_column}}.release();
-  auto list_of_structs_column = cudf::make_lists_column(
-    7,
-    fixed_width_column_wrapper<int32_t>{0, 2, 4, 6, 8, 10, 12, 14}.release(),
-    std::move(structs_column),
-    cudf::UNKNOWN_NULL_COUNT,
-    {});
-
-  std::vector<std::unique_ptr<cudf::column>> vector_of_columns;
-  vector_of_columns.push_back(std::move(list_of_structs_column));
-  auto const struct_of_list_of_structs =
-    structs_column_wrapper{std::move(vector_of_columns)}.release();
+    std::vector<std::unique_ptr<cudf::column>> vector_of_columns;
+    vector_of_columns.push_back(std::move(list_of_structs_column));
+    return structs{std::move(vector_of_columns)};
+  }();
 
   // Gather to new struct column.
-  auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
-
-  auto const gathered_table = cudf::gather(
-    cudf::table_view{std::vector<cudf::column_view>{struct_of_list_of_structs->view()}},
-    gather_map_col->view());
-
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const gather_map       = gather_map_t{null_index, 4, 3, 2, 1};
+  auto const gathered_structs = do_gather(struct_of_list_of_structs, gather_map);
 
   // Construct expected gather result.
 
-  auto expected_numeric_col =
-    fixed_width_column_wrapper<TypeParam, int32_t>{{70, 75, 50, 55, 35, 45, 25, 30, 15, 20}};
-  auto expected_struct_col = structs_column_wrapper{{expected_numeric_col}}.release();
-  auto expected_list_of_structs_column =
-    cudf::make_lists_column(5,
-                            fixed_width_column_wrapper<int32_t>{0, 2, 4, 6, 8, 10}.release(),
-                            std::move(expected_struct_col),
-                            cudf::UNKNOWN_NULL_COUNT,
-                            {});
-  std::vector<std::unique_ptr<cudf::column>> expected_vector_of_columns;
-  expected_vector_of_columns.push_back(std::move(expected_list_of_structs_column));
-  auto const expected_struct_of_list_of_struct =
-    structs_column_wrapper{std::move(expected_vector_of_columns)}.release();
+  auto expected_gather_result = [&] {
+    auto expected_numeric_col = numerics<TypeParam>{{70, 75, 50, 55, 35, 45, 25, 30, 15, 20}};
+    auto expected_struct_col  = structs{{expected_numeric_col}}.release();
+    auto expected_list_of_structs_column =
+      cudf::make_lists_column(5,
+                              offsets{0, 2, 4, 6, 8, 10}.release(),
+                              std::move(expected_struct_col),
+                              cudf::UNKNOWN_NULL_COUNT,
+                              {});
+    std::vector<std::unique_ptr<cudf::column>> expected_vector_of_columns;
+    expected_vector_of_columns.push_back(std::move(expected_list_of_structs_column));
+    return structs{std::move(expected_vector_of_columns), {0, 1, 1, 1, 1}};
+  }();
 
-  expect_columns_equivalent(expected_struct_of_list_of_struct->view(), gathered_struct_col.view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_gather_result, gathered_structs->view());
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructsWithValidity)
