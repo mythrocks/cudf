@@ -18,6 +18,7 @@
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/cudf_gtest.hpp>
+#include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
 #include <cudf/column/column_factories.hpp>
@@ -37,22 +38,28 @@
 
 #include <memory>
 
-using vector_of_columns = std::vector<std::unique_ptr<cudf::column>>;
-using cudf::size_type;
+using namespace cudf;
+using namespace cudf::test;
+using namespace cudf::test::iterators;
+using vector_of_columns = std::vector<std::unique_ptr<column>>;
+using gather_map_t      = std::vector<offset_type>;
+using strings           = strings_column_wrapper;
+using bools             = fixed_width_column_wrapper<bool, int32_t>;
 
-struct StructGatherTest : public cudf::test::BaseFixture {
+template <typename T>
+using numerics = fixed_width_column_wrapper<T, int32_t>;
+
+auto constexpr null_index = std::numeric_limits<offset_type>::min();
+
+namespace cudf::test {
+struct StructGatherTest : public BaseFixture {
 };
 
 template <typename T>
-struct TypedStructGatherTest : public cudf::test::BaseFixture {
+struct TypedStructGatherTest : public BaseFixture {
 };
 
-using FixedWidthTypes = cudf::test::Concat<cudf::test::IntegralTypes,
-                                           cudf::test::FloatingPointTypes,
-                                           cudf::test::DurationTypes,
-                                           cudf::test::TimestampTypes>;
-
-TYPED_TEST_CASE(TypedStructGatherTest, FixedWidthTypes);
+TYPED_TEST_SUITE(TypedStructGatherTest, FixedWidthTypes);
 
 namespace {
 template <typename ElementTo, typename SourceElementT = ElementTo>
@@ -76,26 +83,29 @@ struct column_wrapper_constructor<std::string, std::string> {
   }
 };
 
-template <typename ElementTo, typename SourceElementT = ElementTo>
+template <typename ElementTo,
+          typename SourceElementT = ElementTo, 
+          typename InputValidityIter  = decltype(null_at(0)),
+          typename StructValidityIter = InputValidityIter>
 auto get_expected_column(std::vector<SourceElementT> const& input_values,
-                         std::vector<bool> const& input_validity,
-                         std::vector<bool> const& struct_validity,
+                         InputValidityIter input_validity,
+                         StructValidityIter struct_validity,
                          std::vector<int32_t> const& gather_map)
 {
   auto is_valid =  // Validity predicate.
     [&input_values, &input_validity, &struct_validity, &gather_map](auto gather_index) {
       assert(
-        (gather_index >= 0 && gather_index < static_cast<cudf::size_type>(gather_map.size())) ||
+        (gather_index >= 0 && gather_index < static_cast<cudf::size_type>(gather_map.size())) &&
         "Gather-index out of range.");
 
-      auto i{gather_map[gather_index]};  // Index into input_values.
+      auto i = gather_map[gather_index];  // Index into input_values.
 
       return (i >= 0 && i < static_cast<int>(input_values.size())) &&
-             (struct_validity.empty() || struct_validity[i]) &&
-             (input_validity.empty() || input_validity[i]);
+             struct_validity[i] &&
+             input_validity[i];
     };
 
-  auto expected_row_count{gather_map.size()};
+  auto expected_row_count = gather_map.size();
   auto gather_iter = cudf::detail::make_counting_transform_iterator(
     0, [is_valid, &input_values, &gather_map](auto i) {
       return is_valid(i) ? input_values[gather_map[i]] : SourceElementT{};
@@ -104,84 +114,63 @@ auto get_expected_column(std::vector<SourceElementT> const& input_values,
   return column_wrapper_constructor<ElementTo, SourceElementT>()(
            gather_iter,
            gather_iter + expected_row_count,
-           cudf::detail::make_counting_transform_iterator(0, is_valid))
-    .release();
+           cudf::detail::make_counting_transform_iterator(0, is_valid));
+}
+
+auto do_gather(column_view const& input, gather_map_t const& gather_map)
+{
+  return std::move(gather(table_view{{input}}, 
+                          fixed_width_column_wrapper<offset_type>(gather_map.begin(), gather_map.end()),
+                          out_of_bounds_policy::NULLIFY)->release()[0]);
 }
 }  // namespace
 
 TYPED_TEST(TypedStructGatherTest, TestSimpleStructGather)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<string, numeric, bool>.
 
   // 1. String "names" column.
   auto const names =
     std::vector<std::string>{"Vimes", "Carrot", "Angua", "Cheery", "Detritus", "Slant"};
-  auto const names_validity = std::vector<bool>{1, 1, 1, 1, 1, 1};
-  auto names_column = strings_column_wrapper{names.begin(), names.end(), names_validity.begin()};
+  auto const names_validity = no_nulls();
 
   // 2. Numeric "ages" column.
   auto const ages          = std::vector<int32_t>{5, 10, 15, 20, 25, 30};
-  auto const ages_validity = std::vector<bool>{1, 1, 1, 1, 0, 1};
-  auto ages_column =
-    fixed_width_column_wrapper<TypeParam, int32_t>{ages.begin(), ages.end(), ages_validity.begin()};
+  auto const ages_validity = null_at(4);
 
   // 3. Boolean "is_human" column.
   auto const is_human          = {true, true, false, false, false, false};
-  auto const is_human_validity = std::vector<bool>{1, 1, 1, 0, 1, 1};
-  auto is_human_col =
-    fixed_width_column_wrapper<bool>{is_human.begin(), is_human.end(), is_human_validity.begin()};
+  auto const is_human_validity = null_at(3);
 
   // Assemble struct column.
-  auto const struct_validity = std::vector<bool>{1, 1, 1, 1, 1, 0};
-  auto struct_column =
-    structs_column_wrapper{{names_column, ages_column, is_human_col}, struct_validity.begin()}
-      .release();
+  auto const struct_validity = null_at(5);
+  auto const struct_column = [&] {
+    auto names_member    = strings_column_wrapper{names.begin(), names.end(), names_validity};
+    auto ages_member     = numerics<TypeParam>{ages.begin(), ages.end(), ages_validity}; 
+    auto is_human_member = bools{is_human.begin(), is_human.end(), is_human_validity};
+    return structs_column_wrapper{{names_member, ages_member, is_human_member}, struct_validity};
+  }();
 
   // Gather to new struct column.
-  auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
+  auto const gather_map = gather_map_t{null_index, 4, 3, 2, 1};
 
-  auto const gathered_table =
-    cudf::gather(cudf::table_view{std::vector<cudf::column_view>{struct_column->view()}},
-                 gather_map_col->view());
+  auto const output = do_gather(struct_column, gather_map);
 
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const expected_output = [&] {
+    auto names_member    = get_expected_column<std::string>(names, names_validity, struct_validity, gather_map);
+    auto ages_member     = get_expected_column<TypeParam, int32_t>(ages, ages_validity, struct_validity, gather_map);
+    auto is_human_member = get_expected_column<bool>(std::vector<bool>(is_human.begin(), is_human.end()),
+                                                     is_human_validity,
+                                                     struct_validity,
+                                                     gather_map);
+    return structs_column_wrapper{{names_member, ages_member, is_human_member}, null_at(0)};
+   }();
 
-  // Verify that the gathered struct's fields are as expected.
-
-  auto expected_names_column =
-    get_expected_column<std::string>(names, names_validity, struct_validity, gather_map);
-  expect_columns_equivalent(*expected_names_column, gathered_struct_col.child(0));
-
-  auto expected_ages_column =
-    get_expected_column<TypeParam, int32_t>(ages, ages_validity, struct_validity, gather_map);
-  expect_columns_equivalent(*expected_ages_column, gathered_struct_col.child(1));
-
-  auto expected_bool_column =
-    get_expected_column<bool>(std::vector<bool>(is_human.begin(), is_human.end()),
-                              is_human_validity,
-                              struct_validity,
-                              gather_map);
-  expect_columns_equivalent(*expected_bool_column, gathered_struct_col.child(2));
-
-  std::vector<std::unique_ptr<cudf::column>> expected_columns;
-  expected_columns.push_back(std::move(expected_names_column));
-  expected_columns.push_back(std::move(expected_ages_column));
-  expected_columns.push_back(std::move(expected_bool_column));
-  auto const expected_struct_column =
-    structs_column_wrapper{std::move(expected_columns), std::vector<bool>{0, 1, 1, 1, 1}}.release();
-
-  expect_columns_equivalent(*expected_struct_column, gathered_struct_col);
+   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(output->view(), expected_output);
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfLists)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<list<numeric>>
 
   auto lists_column_exemplar = []() {
@@ -226,8 +215,6 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfLists)
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<list<list<numeric>>>
 
   auto const lists_column_exemplar = []() {
@@ -280,8 +267,6 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructs)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<struct<numeric>>
 
   auto const numeric_column_exemplar = []() {
@@ -322,8 +307,6 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructs)
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListOfStructs)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<struct<numeric>>
 
   auto const numeric_column_exemplar = []() {
@@ -378,8 +361,6 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListOfStructs)
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructsWithValidity)
 {
-  using namespace cudf::test;
-
   // Testing gather() on struct<struct<numeric>>
 
   // Factory to construct numeric column with configurable null-mask.
@@ -429,8 +410,6 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructsWithValidity)
 
 TYPED_TEST(TypedStructGatherTest, TestEmptyGather)
 {
-  using namespace cudf::test;
-
   auto const ages          = std::vector<int32_t>{5, 10, 15, 20, 25, 30};
   auto const ages_validity = std::vector<bool>{1, 1, 1, 1, 0, 1};
   auto ages_column =
@@ -457,3 +436,5 @@ TYPED_TEST(TypedStructGatherTest, TestEmptyGather)
 
   expect_columns_equivalent(*expected_structs_column, gathered_struct_col);
 }
+
+} // namespace cudf::test;
