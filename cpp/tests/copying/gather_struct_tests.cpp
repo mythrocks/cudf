@@ -243,9 +243,7 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfLists)
 
   auto const expected_gathered_list_column = [&] {
     auto const list_column_before_gathering = lists_column_exemplar();
-    return cudf::gather(table_view{{list_column_before_gathering}},
-                        offsets(gather_map.begin(), gather_map.end()))
-      ->get_column(0);
+    return do_gather(list_column_before_gathering, gather_map);
   }();
 
   expect_columns_equivalent(expected_gathered_list_column.view(),
@@ -257,51 +255,38 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfListsOfLists)
   // Testing gather() on struct<list<list<numeric>>>
 
   auto const lists_column_exemplar = []() {
-    return lists_column_wrapper<TypeParam, int32_t>{
-      {{{5, 5}},
-       {{10, 15}},
-       {{20, 25}, {30}},
-       {{35, 40}, {45, 50}},
-       {{55}, {60, 65}},
-       {{70, 75}},
-       {{80, 80}},
-       {},
-       {}},
-      cudf::detail::make_counting_transform_iterator(0, [](auto i) { return !(i % 3); })};
+    return lists<TypeParam>{{{{5, 5}},
+                             {{10, 15}},
+                             {{20, 25}, {30}},
+                             {{35, 40}, {45, 50}},
+                             {{55}, {60, 65}},
+                             {{70, 75}},
+                             {{80, 80}},
+                             {},
+                             {}},
+                            nulls_at({0, 3, 6, 9})};
   };
 
-  auto lists_column =
-    std::make_unique<cudf::column>(cudf::column(lists_column_exemplar(), rmm::cuda_stream_default));
-
-  // Assemble struct column.
-  std::vector<std::unique_ptr<cudf::column>> vector_of_columns;
-  vector_of_columns.push_back(std::move(lists_column));
-  auto const struct_column = structs_column_wrapper{std::move(vector_of_columns)}.release();
+  auto const structs_column = [&] {
+    auto lists_column = lists_column_exemplar();
+    return structs_column_wrapper{{lists_column}};
+  }();
 
   // Gather to new struct column.
   auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1, 7, 3};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
 
-  auto const gathered_table =
-    cudf::gather(cudf::table_view{std::vector<cudf::column_view>{struct_column->view()}},
-                 gather_map_col->view());
-
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const gathered_structs = do_gather(structs_column, gather_map);
 
   // Verify that the gathered struct column's list member presents as if
   // it had itself been gathered individually.
 
-  auto const list_column_before_gathering = lists_column_exemplar().release();
+  auto const expected_gathered_list_column = [&] {
+    auto const list_column_before_gathering = lists_column_exemplar();
+    return do_gather(list_column_before_gathering, gather_map);
+  }();
 
-  auto const expected_gathered_list_column =
-    cudf::gather(
-      cudf::table_view{std::vector<cudf::column_view>{list_column_before_gathering->view()}},
-      gather_map_col->view())
-      ->get_column(0);
-
-  expect_columns_equivalent(expected_gathered_list_column.view(), gathered_struct_col.child(0));
+  expect_columns_equivalent(expected_gathered_list_column->view(),
+                            gathered_structs->view().child(0));
 }
 
 TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructs)
