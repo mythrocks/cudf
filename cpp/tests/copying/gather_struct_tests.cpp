@@ -34,8 +34,6 @@
 
 #include <rmm/device_buffer.hpp>
 
-#include <nvfunctional>
-
 #include <memory>
 
 using namespace cudf;
@@ -367,78 +365,57 @@ TYPED_TEST(TypedStructGatherTest, TestGatherStructOfStructsWithValidity)
 {
   // Testing gather() on struct<struct<numeric>>
 
+  using validity_iter_t = decltype(nulls_at({0}));
+
   // Factory to construct numeric column with configurable null-mask.
-  auto const numeric_column_exemplar = [](nvstd::function<bool(size_type)> pred) {
-    return fixed_width_column_wrapper<TypeParam, int32_t>{
-      {5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75},
-      cudf::detail::make_counting_transform_iterator(0, [=](auto i) { return pred(i); })};
+  auto const numeric_column_exemplar = [](validity_iter_t validity) {
+    return numerics<TypeParam>{{5, 10, 15, 20, 25, 30, 35, 45, 50, 55, 60, 65, 70, 75}, validity};
   };
 
-  // Validity predicates.
-  auto const every_3rd_element_null = [](size_type i) { return !(i % 3); };
-  auto const twelfth_element_null   = [](size_type i) { return i != 11; };
-
   // Construct struct-of-struct-of-numerics.
-  auto numeric_column = numeric_column_exemplar(every_3rd_element_null);
-  auto structs_column = structs_column_wrapper{
-    {numeric_column}, cudf::detail::make_counting_transform_iterator(0, twelfth_element_null)};
-  auto struct_of_structs_column = structs_column_wrapper{{structs_column}}.release();
+  auto struct_of_structs_column = [&] {
+    // Every 3rd element is null.
+    auto numeric_column = numeric_column_exemplar(nulls_at({0, 3, 6, 9, 12, 15}));
+    // 12th element is null.
+    auto structs_column = structs_column_wrapper{{numeric_column}, nulls_at({11})};
+    return structs_column_wrapper{{structs_column}};
+  }();
 
   // Gather to new struct column.
-  auto const gather_map = std::vector<int>{-1, 4, 3, 2, 1, 7, 3};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
-
-  auto const gathered_table =
-    cudf::gather(cudf::table_view{std::vector<cudf::column_view>{struct_of_structs_column->view()}},
-                 gather_map_col->view());
-
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const gather_map       = gather_map_t{null_index, 4, 3, 2, 1, 7, 3};
+  auto const gathered_structs = do_gather(struct_of_structs_column, gather_map);
 
   // Verify that the underlying numeric column presents as if
   // it had itself been gathered individually.
 
-  auto const final_predicate = [=](size_type i) {
-    return every_3rd_element_null(i) && twelfth_element_null(i);
-  };
-  auto const numeric_column_before_gathering = numeric_column_exemplar(final_predicate).release();
-  auto const expected_gathered_column =
-    cudf::gather(
-      cudf::table_view{std::vector<cudf::column_view>{numeric_column_before_gathering->view()}},
-      gather_map_col->view())
-      ->get_column(0);
+  auto const expected_gathered_column = [&] {
+    // Every 3rd element *and* the 12th element are null.
+    auto const final_validity                  = nulls_at({0, 3, 6, 9, 11, 12, 15});
+    auto const numeric_column_before_gathering = numeric_column_exemplar(final_validity);
+    return do_gather(numeric_column_before_gathering, gather_map);
+  }();
 
-  expect_columns_equivalent(expected_gathered_column, gathered_struct_col.child(0).child(0).view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_gathered_column->view(),
+                                      gathered_structs->view().child(0).child(0));
 }
 
 TYPED_TEST(TypedStructGatherTest, TestEmptyGather)
 {
-  auto const ages          = std::vector<int32_t>{5, 10, 15, 20, 25, 30};
-  auto const ages_validity = std::vector<bool>{1, 1, 1, 1, 0, 1};
-  auto ages_column =
-    fixed_width_column_wrapper<TypeParam, int32_t>{ages.begin(), ages.end(), ages_validity.begin()};
+  auto const struct_column = [&] {
+    auto ages = numerics<TypeParam>{{5, 10, 15, 20, 25, 30}, null_at(4)};
+    return structs_column_wrapper{{ages}, null_at(5)};
+  }();
 
-  auto const struct_validity = std::vector<bool>{1, 1, 1, 1, 1, 0};
-  auto const struct_column =
-    structs_column_wrapper{{ages_column}, struct_validity.begin()}.release();
-
-  auto const gather_map = std::vector<int>{};
-  auto const gather_map_col =
-    fixed_width_column_wrapper<int32_t>(gather_map.begin(), gather_map.end()).release();
-
-  auto const gathered_table =
-    cudf::gather(cudf::table_view{std::vector<cudf::column_view>{struct_column->view()}},
-                 gather_map_col->view());
-
-  auto const gathered_struct_col      = gathered_table->get_column(0);
-  auto const gathered_struct_col_view = cudf::structs_column_view{gathered_struct_col};
+  auto const empty_gather_map = gather_map_t{};
+  auto const gathered_structs = do_gather(struct_column, empty_gather_map);
 
   // Expect empty struct column gathered.
-  auto expected_ages_column          = fixed_width_column_wrapper<TypeParam>{};
-  auto const expected_structs_column = structs_column_wrapper{{expected_ages_column}}.release();
+  auto const expected_empty_column = [&] {
+    auto expected_empty_numerics = numerics<TypeParam>{};
+    return structs_column_wrapper{{expected_empty_numerics}};
+  }();
 
-  expect_columns_equivalent(*expected_structs_column, gathered_struct_col);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_empty_column, gathered_structs->view());
 }
 
 }  // namespace cudf::test
