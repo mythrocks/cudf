@@ -21,6 +21,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
 #include <thrust/iterator/constant_iterator.h>
@@ -252,6 +253,78 @@ TEST_F(ListsExtractTest, ExtractElementWithNulls)
     cudf::test::strings_column_wrapper expected({"thesé", "are", "", "strings"}, {1, 1, 0, 1});
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
   }
+}
+
+template <typename T>
+struct ListsExtractColumnIndicesTest : ListsExtractTest {};
+
+TYPED_TEST_SUITE(ListsExtractColumnIndicesTest, NumericTypesNotBool);
+
+TYPED_TEST(ListsExtractColumnIndicesTest, ExtractElement)
+{
+  using namespace cudf;
+  using namespace cudf::lists;
+  using namespace cudf::test;
+  using namespace cudf::test::iterators;
+  using LCW = lists_column_wrapper<TypeParam>;
+  using indices = fixed_width_column_wrapper<offset_type>;
+
+  LCW input({LCW{3, 2, 1}, LCW{}, LCW{30, 20, 10, 50}, LCW{100, 120}, LCW{0}}, null_at(1));
+
+  {
+    auto result = extract_list_element(cudf::lists_column_view(input), indices{0, 0, 0, 0, 0});
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({3, 0, 30, 100, 0}, {1, 0, 1, 1, 1});
+    std::cout << "Results: " << std::endl;
+    print(result->view());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  /*
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 1);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({2, 0, 20, 120, 0}, {1, 0, 1, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 2);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({1, 0, 10, 0, 0}, {1, 0, 1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 3);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({0, 0, 50, 0, 0}, {0, 0, 1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 4);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({0, 0, 0, 0, 0}, {0, 0, 0, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -1);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({1, 0, 50, 120, 0}, {1, 0, 1, 1, 1});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -2);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({2, 0, 10, 100, 0}, {1, 0, 1, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -3);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({3, 0, 20, 0, 0}, {1, 0, 1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -4);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({0, 0, 30, 0, 0}, {0, 0, 1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -5);
+    cudf::test::fixed_width_column_wrapper<TypeParam> expected({0, 0, 0, 0, 0}, {0, 0, 0, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  */
 }
 
 CUDF_TEST_PROGRAM_MAIN()

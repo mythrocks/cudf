@@ -20,7 +20,6 @@
 #include <cudf/lists/extract.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
-#include "cudf/types.hpp"
 
 #include <thrust/transform.h>
 
@@ -46,10 +45,7 @@ struct map_index_fn {
     if (d_offsets.is_null(idx)) return out_of_bounds;
     auto const offset = d_offsets.element<int32_t>(idx);
     auto const length = d_offsets.element<int32_t>(idx + 1) - offset;
-    if constexpr (PositiveIndex) {
-      return index < length ? index + offset : out_of_bounds;
-    }
-
+    if constexpr (PositiveIndex) { return index < length ? index + offset : out_of_bounds; }
     return index >= -length ? length + index + offset : out_of_bounds;
   }
 };
@@ -72,10 +68,9 @@ struct map_index_fn<ignored, column_view> {
     auto const length = d_offsets.element<int32_t>(idx + 1) - offset;
     auto const index  = d_indices.element<int32_t>(idx);
 
-    if (index < 0) {
+    if (index >= 0) {
       return index < length ? index + offset : out_of_bounds;
-    }
-    else {
+    } else {
       return index >= -length ? length + index + offset : out_of_bounds;
     }
   }
@@ -84,11 +79,12 @@ struct map_index_fn<ignored, column_view> {
 template <typename IndexType = size_type>
 auto get_device_accessible_index(IndexType const& index, rmm::cuda_stream_view)
 {
-  return &index; // size_type is accessible in __device__.
+  return &index;  // size_type is accessible in __device__.
 }
 
 template <>
-auto get_device_accessible_index<column_view>(column_view const& index_column, rmm::cuda_stream_view stream)
+auto get_device_accessible_index<column_view>(column_view const& index_column,
+                                              rmm::cuda_stream_view stream)
 {
   return column_device_view::create(index_column, stream);
 }
@@ -121,11 +117,12 @@ std::unique_ptr<column> extract_list_element_impl(lists_column_view lists_column
   // build the gather map using the offsets and the provided index
   auto const d_column = column_device_view::create(annotated_offsets, stream);
   auto const d_index  = get_device_accessible_index(index, stream);
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator<size_type>(0),
-                    thrust::make_counting_iterator<size_type>(gather_map->size()),
-                    d_gather_map,
-                    map_index_fn<PositiveIndex, IndexType>{*d_column, *d_index, child_column.size()});
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<size_type>(0),
+    thrust::make_counting_iterator<size_type>(gather_map->size()),
+    d_gather_map,
+    map_index_fn<PositiveIndex, IndexType>{*d_column, *d_index, child_column.size()});
 
   // call gather on the child column
   auto result = cudf::detail::gather(table_view({child_column}),
@@ -151,7 +148,7 @@ std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
                                              rmm::mr::device_memory_resource* mr)
 {
   return index < 0 ? extract_list_element_impl<false>(lists_column, index, stream, mr)
-                   : extract_list_element_impl<true>( lists_column, index, stream, mr);
+                   : extract_list_element_impl<true>(lists_column, index, stream, mr);
 }
 
 std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
@@ -159,6 +156,8 @@ std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
                                              rmm::cuda_stream_view stream,
                                              rmm::mr::device_memory_resource* mr)
 {
+  CUDF_EXPECTS(lists_column.size() == indices.size(), 
+               "Index column must have as many elements as lists column.");
   return extract_list_element_impl<false, column_view>(lists_column, indices, stream, mr);
 }
 
