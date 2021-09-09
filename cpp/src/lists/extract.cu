@@ -156,7 +156,7 @@ std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
                                              rmm::cuda_stream_view stream,
                                              rmm::mr::device_memory_resource* mr)
 {
-  CUDF_EXPECTS(lists_column.size() == indices.size(), 
+  CUDF_EXPECTS(lists_column.size() == indices.size(),
                "Index column must have as many elements as lists column.");
   return extract_list_element_impl<false, column_view>(lists_column, indices, stream, mr);
 }
