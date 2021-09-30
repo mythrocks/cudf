@@ -34,132 +34,38 @@ namespace cudf {
 namespace lists {
 namespace detail {
 
-namespace {
-
-/**
- * @brief Convert index value for each sublist into a gather index for
- * the lists column's child column.
- */
-template <bool PositiveIndex = true>
-struct map_index_fn {
-  column_device_view const d_offsets;  // offsets to each sublist (including validity mask)
-  size_type const index;               // index of element within each sublist
-  size_type const out_of_bounds;       // value to use to indicate out-of-bounds
-
-  __device__ int32_t operator()(size_type idx)
-  {
-    if (d_offsets.is_null(idx)) return out_of_bounds;
-    auto const offset = d_offsets.element<int32_t>(idx);
-    auto const length = d_offsets.element<int32_t>(idx + 1) - offset;
-    if (PositiveIndex)
-      return index < length ? index + offset : out_of_bounds;
-    else
-      return index >= -length ? length + index + offset : out_of_bounds;
-  }
-};
-
-}  // namespace
-
 /**
  * @copydoc cudf::lists::extract_list_element
  *
  * @param stream CUDA stream used for device memory operations and kernel launches.
  */
-std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
-                                             size_type index,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::mr::device_memory_resource* mr)
-{
-  if (lists_column.is_empty()) return empty_like(lists_column.child());
-  auto const offsets_column = lists_column.offsets();
-
-  // create a column_view with attributes of the parent and data from the offsets
-  column_view annotated_offsets(data_type{type_id::INT32},
-                                lists_column.size() + 1,
-                                offsets_column.data<int32_t>(),
-                                lists_column.null_mask(),
-                                lists_column.null_count(),
-                                lists_column.offset());
-
-  // create a gather map for extracting elements from the child column
-  auto gather_map = make_fixed_width_column(
-    data_type{type_id::INT32}, annotated_offsets.size() - 1, mask_state::UNALLOCATED, stream);
-  auto d_gather_map       = gather_map->mutable_view().data<int32_t>();
-  auto const child_column = lists_column.child();
-
-  // build the gather map using the offsets and the provided index
-  auto const d_column = column_device_view::create(annotated_offsets, stream);
-  if (index < 0)
-    thrust::transform(rmm::exec_policy(stream),
-                      thrust::make_counting_iterator<size_type>(0),
-                      thrust::make_counting_iterator<size_type>(gather_map->size()),
-                      d_gather_map,
-                      map_index_fn<false>{*d_column, index, child_column.size()});
-  else
-    thrust::transform(rmm::exec_policy(stream),
-                      thrust::make_counting_iterator<size_type>(0),
-                      thrust::make_counting_iterator<size_type>(gather_map->size()),
-                      d_gather_map,
-                      map_index_fn<true>{*d_column, index, child_column.size()});
-
-  // call gather on the child column
-  auto result = cudf::detail::gather(table_view({child_column}),
-                                     d_gather_map,
-                                     d_gather_map + gather_map->size(),
-                                     out_of_bounds_policy::NULLIFY,  // nullify-out-of-bounds
-                                     stream,
-                                     mr)
-                  ->release();
-  if (result.front()->null_count() == 0)
-    result.front()->set_null_mask(rmm::device_buffer{0, stream, mr}, 0);
-  return std::unique_ptr<column>(std::move(result.front()));
-}
-
-/*
-namespace {
-auto make_column_from(int32_t const& value, size_type const& num_rows, rmm::cuda_stream_view stream) 
-{
-  auto scalar = cudf::make_numeric_scalar(cudf::data_type{cudf::type_id::INT32});
-  static_cast<cudf::numeric_scalar<size_type>*>(scalar.get())->set_value(value, stream);
-  return cudf::make_column_from_scalar(*scalar, num_rows, stream);
-}
-}
-*/
-
 std::unique_ptr<column> extract_list_element_new(lists_column_view lists_column,
                                                  size_type index,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::mr::device_memory_resource* mr)
 {
-  /*
-  auto index_scalar = cudf::make_numeric_scalar(cudf::data_type{cudf::type_id::INT32});
-  static_cast<cudf::numeric_scalar<size_type>*>(index_scalar.get())->set_value(index, stream);
-  
-  auto index_column = cudf::make_column_from_scalar(*index_scalar, lists_column.size(), stream);
-  return index_column;
-  auto index_list_column = cudf::make_lists_column(
-    lists_column.size(), 
-    cudf::make_numeric_column(cudf::type_id::INT32, lists_column.size()+1), int child_column, size_type null_count, rmm::device_buffer &&null_mask)
-  */
-
   auto const num_lists = lists_column.size();
   if (num_lists == 0) return empty_like(lists_column.child());
 
-  auto index_child = make_numeric_column(data_type{type_id::INT32}, num_lists, mask_state::UNALLOCATED, stream);
-  thrust::copy_n(rmm::exec_policy(stream), 
-                 thrust::make_constant_iterator(size_type{index}), 
+  auto index_child =  // [index, index, index, ..., index]
+    make_numeric_column(data_type{type_id::INT32}, num_lists, mask_state::UNALLOCATED, stream);
+  thrust::copy_n(rmm::exec_policy(stream),
+                 thrust::make_constant_iterator(size_type{index}),
                  num_lists,
                  index_child->mutable_view().begin<size_type>());
 
-  auto index_offsets = make_numeric_column(data_type{type_id::INT32}, num_lists + 1, mask_state::UNALLOCATED, stream);
+  auto index_offsets =  // [0, 1, 2, 3, ... num_lists + 1]
+    make_numeric_column(data_type{type_id::INT32}, num_lists + 1, mask_state::UNALLOCATED, stream);
   thrust::copy_n(rmm::exec_policy(stream),
                  cudf::detail::make_counting_transform_iterator(0, thrust::identity<size_type>{}),
                  num_lists + 1,
                  index_offsets->mutable_view().begin<size_type>());
 
-  auto index_lists = make_lists_column(num_lists, std::move(index_offsets), std::move(index_child), 0, {}, stream);
+  auto index_lists =  // [(index), (index), (index), ..., (index)]
+    make_lists_column(num_lists, std::move(index_offsets), std::move(index_child), 0, {}, stream);
 
-  auto extracted_lists = segmented_gather(lists_column, index_lists->view(), out_of_bounds_policy::NULLIFY, stream, mr);
+  auto extracted_lists =
+    segmented_gather(lists_column, index_lists->view(), out_of_bounds_policy::NULLIFY, stream, mr);
   return std::move(extracted_lists->release().children[lists_column_view::child_column_index]);
 }
 

@@ -258,18 +258,20 @@ TEST_F(ListsExtractTest, ExtractElementWithNulls)
 }
 
 namespace cudf::lists::detail {
-  std::unique_ptr<column> extract_list_element_new(lists_column_view lists_column,
-                                                   size_type index,
-                                                   rmm::cuda_stream_view stream = rmm::cuda_stream_default,
-                                                   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+std::unique_ptr<column> extract_list_element_new(
+  lists_column_view lists_column,
+  size_type index,
+  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 }
-struct MythTest : cudf::test::BaseFixture {};
+struct MythTest : cudf::test::BaseFixture {
+};
 
 TEST_F(MythTest, TestExtractListElementNew)
 {
   using namespace cudf;
 
-  auto input = cudf::test::lists_column_wrapper<int32_t>{{0,1,2}, {3,4}, {5,6,7}, {8,9}};
+  auto input = cudf::test::lists_column_wrapper<int32_t>{{0, 1, 2}, {3, 4}, {5, 6, 7}, {8, 9}};
   std::cout << "Input: " << std::endl;
   cudf::test::print(input);
 
