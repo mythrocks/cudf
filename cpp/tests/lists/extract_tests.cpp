@@ -23,7 +23,10 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/type_lists.hpp>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <thrust/iterator/constant_iterator.h>
+
 #include <vector>
 
 struct ListsExtractTest : public cudf::test::BaseFixture {
@@ -36,7 +39,7 @@ template <typename T>
 class ListsExtractNumericsTest : public ListsExtractTest {
 };
 
-TYPED_TEST_CASE(ListsExtractNumericsTest, NumericTypesNotBool);
+TYPED_TEST_SUITE(ListsExtractNumericsTest, NumericTypesNotBool);
 
 TYPED_TEST(ListsExtractNumericsTest, ExtractElement)
 {
@@ -221,12 +224,12 @@ TEST_F(ListsExtractTest, ExtractElementEmpty)
   LCW empty_strings({LCW{"", "", ""}});
   result = cudf::lists::extract_list_element(cudf::lists_column_view(empty_strings), 1);
   cudf::test::strings_column_wrapper expected({""});
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
 
   LCW null_strings({LCW{"", "", ""}}, thrust::make_constant_iterator<int32_t>(0));
   result = cudf::lists::extract_list_element(cudf::lists_column_view(null_strings), 1);
   cudf::test::strings_column_wrapper expected_null({""}, {0});
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_null, *result);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_null, *result);
 }
 
 TEST_F(ListsExtractTest, ExtractElementWithNulls)
@@ -240,18 +243,39 @@ TEST_F(ListsExtractTest, ExtractElementWithNulls)
   {
     auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 0);
     cudf::test::strings_column_wrapper expected({"Héllo", "are", "some", "tést"});
-    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
   }
   {
     auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), 1);
     cudf::test::strings_column_wrapper expected({"", "", "", "strings"}, {0, 0, 0, 1});
-    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
   }
   {
     auto result = cudf::lists::extract_list_element(cudf::lists_column_view(input), -1);
     cudf::test::strings_column_wrapper expected({"thesé", "are", "", "strings"}, {1, 1, 0, 1});
-    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
   }
+}
+
+namespace cudf::lists::detail {
+  std::unique_ptr<column> extract_list_element_new(lists_column_view lists_column,
+                                                   size_type index,
+                                                   rmm::cuda_stream_view stream = rmm::cuda_stream_default,
+                                                   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+}
+struct MythTest : cudf::test::BaseFixture {};
+
+TEST_F(MythTest, TestExtractListElementNew)
+{
+  using namespace cudf;
+
+  auto input = cudf::test::lists_column_wrapper<int32_t>{{0,1,2}, {3,4}, {5,6,7}, {8,9}};
+  std::cout << "Input: " << std::endl;
+  cudf::test::print(input);
+
+  auto result = cudf::lists::detail::extract_list_element_new(lists_column_view{input}, 1);
+  std::cout << "Output: " << std::endl;
+  cudf::test::print(result->view());
 }
 
 CUDF_TEST_PROGRAM_MAIN()
