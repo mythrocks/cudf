@@ -37,8 +37,19 @@ namespace lists {
 namespace detail {
 namespace {
 
-std::unique_ptr<cudf::column> make_index_child_column(column_view const& indices,
-                                                      rmm::cuda_stream_view stream)
+/**
+ * @brief Helper to construct a column of indices, for use with `segmented_gather()`.
+ *
+ * When indices are specified as a column, e.g. `{5, -4, 3, -2, 1, null}`,
+ * the column returned is:                      `{5, -4, 3, -2, 1, MAX_SIZE_TYPE}`.
+ * All null indices are replaced with `MAX_SIZE_TYPE = numeric_limits<size_type>::max()`.
+ *
+ * The returned column can then be used to construct a lists column, for use
+ * with `segmented_gather()`.
+ */
+std::unique_ptr<cudf::column> make_index_child(column_view const& indices,
+                                               size_type ignore,  // Placeholder for number of rows.
+                                               rmm::cuda_stream_view stream)
 {
   // New column, near identical to `indices`, except with null values replaced.
   // `segmented_gather()` on a null index should produce a null row.
@@ -51,82 +62,85 @@ std::unique_ptr<cudf::column> make_index_child_column(column_view const& indices
     cudf::detail::make_null_replacement_iterator(d_indices, null_index);
   auto index_child = cudf::make_numeric_column(
     data_type{type_id::INT32}, indices.size(), mask_state::UNALLOCATED, stream);
-  thrust::copy(rmm::exec_policy(stream),
-               null_replaced_iter_begin,
-               null_replaced_iter_begin + indices.size(),
-               index_child->mutable_view().begin<size_type>());
+  thrust::copy_n(rmm::exec_policy(stream),
+                 null_replaced_iter_begin,
+                 indices.size(),
+                 index_child->mutable_view().begin<size_type>());
   return index_child;
+}
+
+/**
+ * @brief Helper to construct a column of indices, for use with `segmented_gather()`.
+ *
+ * When indices are specified as a size_type, e.g. `7`,
+ * the column returned is: `{ 7, 7, 7, 7, 7 }`.
+ *
+ * The returned column can then be used to construct a lists column, for use
+ * with `segmented_gather()`.
+ */
+std::unique_ptr<cudf::column> make_index_child(size_type index,
+                                               size_type num_rows,
+                                               rmm::cuda_stream_view stream)
+{
+  auto index_child =  // [index, index, index, ..., index]
+    make_numeric_column(data_type{type_id::INT32}, num_rows, mask_state::UNALLOCATED, stream);
+  thrust::copy_n(rmm::exec_policy(stream),
+                 thrust::make_constant_iterator(size_type{index}),
+                 num_rows,
+                 index_child->mutable_view().begin<size_type>());
+  return index_child;
+}
+
+/**
+ * @brief Helper to construct offsets column for an index vector.
+ *
+ * Constructs the sequence: `{ 0, 1, 2, 3, ... num_lists + 1}`.
+ * This may be used to construct an "index-list" column, where each list row
+ * has a single element.
+ */
+std::unique_ptr<cudf::column> make_index_offsets(size_type num_lists, rmm::cuda_stream_view stream)
+{
+  auto index_offsets =  // [0, 1, 2, 3, ... num_lists + 1]
+    make_numeric_column(data_type{type_id::INT32}, num_lists + 1, mask_state::UNALLOCATED, stream);
+  thrust::copy_n(rmm::exec_policy(stream),
+                 cudf::detail::make_counting_transform_iterator(0, thrust::identity<size_type>{}),
+                 num_lists + 1,
+                 index_offsets->mutable_view().begin<size_type>());
+  return index_offsets;
 }
 
 }  // namespace
 
 /**
  * @copydoc cudf::lists::extract_list_element
- *
+ * @tparam index_t The type used to specify the index values (either column_view or size_type)
  * @param stream CUDA stream used for device memory operations and kernel launches.
  */
+template <typename index_t>
 std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
-                                             size_type index,
+                                             index_t const& index,
                                              rmm::cuda_stream_view stream,
                                              rmm::mr::device_memory_resource* mr)
 {
   auto const num_lists = lists_column.size();
-  if (num_lists == 0) return empty_like(lists_column.child());
+  if (num_lists == 0) { return empty_like(lists_column.child()); }
 
-  auto index_child =  // [index, index, index, ..., index]
-    make_numeric_column(data_type{type_id::INT32}, num_lists, mask_state::UNALLOCATED, stream);
-  thrust::copy_n(rmm::exec_policy(stream),
-                 thrust::make_constant_iterator(size_type{index}),
-                 num_lists,
-                 index_child->mutable_view().begin<size_type>());
+  // Given an index (or indices vector), an index lists column may be constructed,
+  // with each list row having a single element.
+  // E.g.
+  // 1. If index = 7, index_lists_column = { {7}, {7}, {7}, {7}, ... }.
+  // 2. If indices = {4, 3, 2, 1, null},
+  //    index_lists_column = { {4}, {3}, {2}, {1}, {MAX_SIZE_TYPE} }.
 
-  auto index_offsets =  // [0, 1, 2, 3, ... num_lists + 1]
-    make_numeric_column(data_type{type_id::INT32}, num_lists + 1, mask_state::UNALLOCATED, stream);
-  thrust::copy_n(rmm::exec_policy(stream),
-                 cudf::detail::make_counting_transform_iterator(0, thrust::identity<size_type>{}),
-                 num_lists + 1,
-                 index_offsets->mutable_view().begin<size_type>());
+  auto const index_lists_column = make_lists_column(num_lists,
+                                                    make_index_offsets(num_lists, stream),
+                                                    make_index_child(index, num_lists, stream),
+                                                    0,
+                                                    {},
+                                                    stream);
 
-  auto index_lists =  // [(index), (index), (index), ..., (index)]
-    make_lists_column(num_lists, std::move(index_offsets), std::move(index_child), 0, {}, stream);
-
-  auto extracted_lists =
-    segmented_gather(lists_column, index_lists->view(), out_of_bounds_policy::NULLIFY, stream, mr);
-  return std::move(extracted_lists->release().children[lists_column_view::child_column_index]);
-}
-
-/**
- * @copydoc cudf::lists::extract_list_element
- *
- * @param stream CUDA stream used for device memory operations and kernel launches.
- */
-std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
-                                             column_view const& indices,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::mr::device_memory_resource* mr)
-{
-  auto const num_lists = lists_column.size();
-  if (num_lists == 0) return empty_like(lists_column.child());
-
-  CUDF_EXPECTS(indices.size() == num_lists,
-               "Index column must have as many elements as lists column.");
-  // TODO: Assert on index type?
-
-  auto index_offsets =  // [0, 1, 2, 3, ... num_lists + 1]
-    make_numeric_column(data_type{type_id::INT32}, num_lists + 1, mask_state::UNALLOCATED, stream);
-  thrust::copy_n(rmm::exec_policy(stream),
-                 cudf::detail::make_counting_transform_iterator(0, thrust::identity<size_type>{}),
-                 num_lists + 1,
-                 index_offsets->mutable_view().begin<size_type>());
-
-  auto index_child =  // [indices[0], indices[1], indices[2], ..., indices[n-1]]
-    make_index_child_column(indices, stream);
-
-  auto index_lists =
-    make_lists_column(num_lists, std::move(index_offsets), std::move(index_child), 0, {}, stream);
-
-  auto extracted_lists =
-    segmented_gather(lists_column, index_lists->view(), out_of_bounds_policy::NULLIFY, stream, mr);
+  auto extracted_lists = segmented_gather(
+    lists_column, index_lists_column->view(), out_of_bounds_policy::NULLIFY, stream, mr);
 
   return std::move(extracted_lists->release().children[lists_column_view::child_column_index]);
 }
@@ -134,7 +148,9 @@ std::unique_ptr<column> extract_list_element(lists_column_view lists_column,
 }  // namespace detail
 
 /**
- * @copydoc cudf::lists::extract_list_element
+ * @copydoc cudf::lists::extract_list_element(lists_column_view const&,
+ *                                            size_type,
+ *                                            rmm::mr::device_memory_resource*)
  */
 std::unique_ptr<column> extract_list_element(lists_column_view const& lists_column,
                                              size_type index,
@@ -143,10 +159,17 @@ std::unique_ptr<column> extract_list_element(lists_column_view const& lists_colu
   return detail::extract_list_element(lists_column, index, rmm::cuda_stream_default, mr);
 }
 
+/**
+ * @copydoc cudf::lists::extract_list_element(lists_column_view const&,
+ *                                            column_view const&,
+ *                                            rmm::mr::device_memory_resource*)
+ */
 std::unique_ptr<column> extract_list_element(lists_column_view const& lists_column,
                                              column_view const& indices,
                                              rmm::mr::device_memory_resource* mr)
 {
+  CUDF_EXPECTS(indices.size() == lists_column.size(),
+               "Index column must have as many elements as lists column.");
   return detail::extract_list_element(lists_column, indices, rmm::cuda_stream_default, mr);
 }
 
