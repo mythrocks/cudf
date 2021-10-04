@@ -21,6 +21,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -257,27 +258,142 @@ TEST_F(ListsExtractTest, ExtractElementWithNulls)
   }
 }
 
-namespace cudf::lists::detail {
-std::unique_ptr<column> extract_list_element_new(
-  lists_column_view lists_column,
-  size_type index,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
-}
-struct MythTest : cudf::test::BaseFixture {
+struct ListsExtractColumnIndicesTest : ListsExtractTest {
 };
 
-TEST_F(MythTest, TestExtractListElementNew)
+template <typename T>
+struct ListsExtractColumnIndicesTypedTest : ListsExtractColumnIndicesTest {
+};
+
+TYPED_TEST_SUITE(ListsExtractColumnIndicesTypedTest, cudf::test::FixedWidthTypes);
+
+TYPED_TEST(ListsExtractColumnIndicesTypedTest, ExtractElement)
 {
   using namespace cudf;
+  using namespace cudf::lists;
+  using namespace cudf::test;
+  using namespace cudf::test::iterators;
+  using LCW     = lists_column_wrapper<TypeParam, int32_t>;
+  using FWCW    = fixed_width_column_wrapper<TypeParam, int32_t>;
+  using indices = fixed_width_column_wrapper<offset_type>;
 
-  auto input = cudf::test::lists_column_wrapper<int32_t>{{0, 1, 2}, {3, 4}, {5, 6, 7}, {8, 9}};
-  std::cout << "Input: " << std::endl;
-  cudf::test::print(input);
+  auto input_column =
+    LCW({LCW{3, 2, 1}, LCW{}, LCW{30, 20, 10, 50}, LCW{100, 120}, LCW{0}, LCW{}}, null_at(1));
+  auto input = lists_column_view(input_column);
 
-  auto result = cudf::lists::detail::extract_list_element_new(lists_column_view{input}, 1);
-  std::cout << "Output: " << std::endl;
-  cudf::test::print(result->view());
+  {
+    // Test fetching first element.
+    auto result   = extract_list_element(input, indices{0, 0, 0, 0, 0, 0});
+    auto expected = FWCW({3, 0, 30, 100, 0, 0}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching last element.
+    auto result   = extract_list_element(input, indices{2, 0, 3, 1, 0, 0});
+    auto expected = FWCW({1, 0, 50, 120, 0, 0}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching *all* out of bounds.
+    auto result   = extract_list_element(input, indices{9, 9, 9, 9, 9, 9});
+    auto expected = FWCW({0, 0, 0, 0, 0, 0}, all_nulls());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching first from the end.
+    auto result   = extract_list_element(input, indices{-1, -1, -1, -1, -1, -1});
+    auto expected = FWCW({1, 0, 50, 120, 0, 0}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching last from the end.
+    auto result   = extract_list_element(input, indices{-3, 0, -4, -2, -1, 0});
+    auto expected = FWCW({3, 0, 30, 100, 0, 0}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching *all* negative out of bounds.
+    auto result   = extract_list_element(input, indices{-9, -9, -9, -9, -9, -9});
+    auto expected = FWCW({0, 0, 0, 0, 0, 0}, all_nulls());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test mixed indices.
+    auto result   = extract_list_element(input, indices{-2, 0, 3, -1, 0, 0});
+    auto expected = FWCW({2, 0, 50, 120, 0, 0}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test possibly null indices.
+    auto result   = extract_list_element(input, indices{{-2, 0, 3, -1, 0, 0}, nulls_at({2, 4})});
+    auto expected = FWCW({2, 0, 50, 120, 0, 0}, nulls_at({1, 2, 4, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+}
+
+TEST_F(ListsExtractColumnIndicesTest, ExtractStrings)
+{
+  using namespace cudf;
+  using namespace cudf::lists;
+  using namespace cudf::test;
+  using namespace cudf::test::iterators;
+  using LCW     = lists_column_wrapper<string_view>;
+  using strings = strings_column_wrapper;
+  using indices = fixed_width_column_wrapper<offset_type>;
+
+  auto input_column = LCW(
+    {LCW{"3", "2", "1"}, LCW{}, LCW{"30", "20", "10", "50"}, LCW{"100", "120"}, LCW{"0"}, LCW{}},
+    null_at(1));
+  auto input = lists_column_view(input_column);
+
+  {
+    // Test fetching first element.
+    auto result   = extract_list_element(input, indices{0, 0, 0, 0, 0, 0});
+    auto expected = strings({"3", "", "30", "100", "0", ""}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching last element.
+    auto result   = extract_list_element(input, indices{2, 0, 3, 1, 0, 0});
+    auto expected = strings({"1", "", "50", "120", "0", ""}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching *all* out of bounds.
+    auto result   = extract_list_element(input, indices{9, 9, 9, 9, 9, 9});
+    auto expected = strings({"", "", "", "", "", ""}, all_nulls());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching first from the end.
+    auto result   = extract_list_element(input, indices{-1, -1, -1, -1, -1, -1});
+    auto expected = strings({"1", "", "50", "120", "0", ""}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching last from the end.
+    auto result   = extract_list_element(input, indices{-3, 0, -4, -2, -1, 0});
+    auto expected = strings({"3", "", "30", "100", "0", ""}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test fetching *all* negative out of bounds.
+    auto result   = extract_list_element(input, indices{-9, -9, -9, -9, -9, -9});
+    auto expected = strings({"", "", "", "", "", ""}, all_nulls());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test mixed indices.
+    auto result   = extract_list_element(input, indices{-2, 0, 3, -1, 0, 0});
+    auto expected = strings({"2", "", "50", "120", "0", ""}, nulls_at({1, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
+  {
+    // Test possibly null indices.
+    auto result   = extract_list_element(input, indices{{-2, 0, 3, -1, 0, 0}, nulls_at({2, 4})});
+    auto expected = strings({"2", "", "50", "120", "", ""}, nulls_at({1, 2, 4, 5}));
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+  }
 }
 
 CUDF_TEST_PROGRAM_MAIN()
