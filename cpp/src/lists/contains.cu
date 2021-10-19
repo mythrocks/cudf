@@ -90,32 +90,30 @@ struct lookup_functor {
                             rmm::cuda_stream_view stream,
                             rmm::mr::device_memory_resource*) const
   {
-    thrust::for_each(
+    auto output_iterator = thrust::make_zip_iterator(
+      thrust::make_tuple(mutable_ret_bools.data<bool>(), 
+                         mutable_ret_validity.data<bool>()));
+
+    thrust::tabulate(
       rmm::exec_policy(stream),
-      thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(d_lists.size()),
+      output_iterator,
+      output_iterator + d_lists.size(),
       [d_lists,
-       search_key_pair_iter,
-       d_bools    = mutable_ret_bools.data<bool>(),
-       d_validity = mutable_ret_validity.data<bool>()] __device__(auto row_index) {
+       search_key_pair_iter] __device__(auto row_index) -> thrust::tuple<bool, bool> {
         auto search_key_and_validity    = search_key_pair_iter[row_index];
         auto const& search_key_is_valid = search_key_and_validity.second;
 
         if (search_keys_have_nulls && !search_key_is_valid) {
-          d_bools[row_index]    = false;
-          d_validity[row_index] = false;
-          return;
+          return {false, false};
         }
 
         auto list = cudf::list_device_view(d_lists, row_index);
         if (list.is_null()) {
-          d_bools[row_index]    = false;
-          d_validity[row_index] = false;
-          return;
+          return {false, false};
         }
 
         auto search_key = search_key_and_validity.first;
-        d_bools[row_index] =
+        bool is_found =
           thrust::find_if(thrust::seq,
                           list.pair_rep_begin<ElementType>(),
                           list.pair_rep_end<ElementType>(),
@@ -123,12 +121,13 @@ struct lookup_functor {
                             return element_and_validity.second &&
                                    cudf::equality_compare(element_and_validity.first, search_key);
                           }) != list.pair_rep_end<ElementType>();
-        d_validity[row_index] = d_bools[row_index] || 
-                                !nullify_if_lists_contain_nulls ||
-                                thrust::none_of(thrust::seq,
-                                                thrust::make_counting_iterator(size_type{0}),
-                                                thrust::make_counting_iterator(list.size()),
-                                                [&list] __device__(auto const& i) { return list.is_null(i); });
+        bool is_valid = is_found || 
+                        !nullify_if_lists_contain_nulls ||
+                        thrust::none_of(thrust::seq,
+                                        thrust::make_counting_iterator(size_type{0}),
+                                        thrust::make_counting_iterator(list.size()),
+                                        [&list] __device__(auto const& i) { return list.is_null(i); });
+        return {is_found, is_valid};
       });
   }
 
