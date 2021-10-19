@@ -37,6 +37,8 @@ namespace lists {
 
 namespace {
 
+auto constexpr not_found_index = size_type{-1};
+
 auto get_search_keys_device_iterable_view(cudf::column_view const& search_keys,
                                           rmm::cuda_stream_view stream)
 {
@@ -68,10 +70,11 @@ struct lookup_functor {
       "lists::contains() is only supported on numeric types, decimals, chrono types, and strings.");
   }
 
-  std::pair<rmm::device_buffer, size_type> construct_null_mask(lists_column_view const& input_lists,
-                                                               column_view const& result_validity,
-                                                               rmm::cuda_stream_view stream,
-                                                               rmm::mr::device_memory_resource* mr) const
+  std::pair<rmm::device_buffer, size_type> construct_null_mask(
+    lists_column_view const& input_lists,
+    column_view const& result_validity,
+    rmm::cuda_stream_view stream,
+    rmm::mr::device_memory_resource* mr) const
   {
     if (!search_keys_have_nulls && !input_lists.has_nulls() && !input_lists.child().has_nulls()) {
       return {rmm::device_buffer{0, stream, mr}, size_type{0}};
@@ -92,45 +95,43 @@ struct lookup_functor {
                             rmm::cuda_stream_view stream,
                             rmm::mr::device_memory_resource*) const
   {
-    auto output_iterator = thrust::make_zip_iterator(
-      thrust::make_tuple(mutable_ret_positions.data<size_type>(), 
-                         mutable_ret_validity.data<bool>()));
+    auto output_iterator = thrust::make_zip_iterator(thrust::make_tuple(
+      mutable_ret_positions.data<size_type>(), mutable_ret_validity.data<bool>()));
 
     thrust::tabulate(
       rmm::exec_policy(stream),
       output_iterator,
       output_iterator + d_lists.size(),
-      [d_lists,
-       search_key_pair_iter] __device__(auto row_index) -> thrust::tuple<size_type, bool> {
+      [d_lists, search_key_pair_iter, not_found = not_found_index] __device__(
+        auto row_index) -> thrust::tuple<size_type, bool> {
         auto search_key_and_validity    = search_key_pair_iter[row_index];
         auto const& search_key_is_valid = search_key_and_validity.second;
 
-        if (search_keys_have_nulls && !search_key_is_valid) {
-          return {-1, false};
-        }
+        if (search_keys_have_nulls && !search_key_is_valid) { return {not_found, false}; }
 
         auto list = cudf::list_device_view(d_lists, row_index);
-        if (list.is_null()) {
-          return {-1, false};
-        }
+        if (list.is_null()) { return {not_found, false}; }
 
         auto const search_key = search_key_and_validity.first;
-        auto const find_iter = thrust::find_if(thrust::seq,
-                                               list.pair_rep_begin<ElementType>(),
-                                               list.pair_rep_end<ElementType>(),
-                                               [search_key] __device__(auto element_and_validity) {
-                                                 return element_and_validity.second &&
-                                                      cudf::equality_compare(element_and_validity.first, search_key);
-                                              }); 
+        auto const find_iter =
+          thrust::find_if(thrust::seq,
+                          list.pair_rep_begin<ElementType>(),
+                          list.pair_rep_end<ElementType>(),
+                          [search_key] __device__(auto element_and_validity) {
+                            return element_and_validity.second &&
+                                   cudf::equality_compare(element_and_validity.first, search_key);
+                          });
         auto const is_found = find_iter != list.pair_rep_end<ElementType>();
-        auto const position = is_found? thrust::distance(list.pair_rep_begin<ElementType>(), find_iter) : -1;
+        auto const position = is_found
+                                ? thrust::distance(list.pair_rep_begin<ElementType>(), find_iter)
+                                : not_found_index;
 
-        bool is_valid = is_found || 
-                        !nullify_if_lists_contain_nulls ||
-                        thrust::none_of(thrust::seq,
-                                        thrust::make_counting_iterator(size_type{0}),
-                                        thrust::make_counting_iterator(list.size()),
-                                        [&list] __device__(auto const& i) { return list.is_null(i); });
+        bool is_valid =
+          is_found || !nullify_if_lists_contain_nulls ||
+          thrust::none_of(thrust::seq,
+                          thrust::make_counting_iterator(size_type{0}),
+                          thrust::make_counting_iterator(list.size()),
+                          [&list] __device__(auto const& i) { return list.is_null(i); });
         return {position, is_valid};
       });
   }
@@ -195,11 +196,15 @@ std::unique_ptr<column> to_contains(std::unique_ptr<column>&& key_positions,
                                     rmm::mr::device_memory_resource* mr)
 {
   // If position == -1, the list did not contain the search key.
-  auto const num_rows = key_positions->size();
+  auto const num_rows        = key_positions->size();
   auto const positions_begin = key_positions->view().begin<size_type>();
-  auto result = make_numeric_column(data_type{type_id::BOOL8}, num_rows, mask_state::UNALLOCATED, stream, mr);
-  thrust::transform(rmm::exec_policy(stream), positions_begin, positions_begin + num_rows, result->mutable_view().begin<bool>(),
-                    []__device__(auto i) { return i != -1; });
+  auto result =
+    make_numeric_column(data_type{type_id::BOOL8}, num_rows, mask_state::UNALLOCATED, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    positions_begin,
+                    positions_begin + num_rows,
+                    result->mutable_view().begin<bool>(),
+                    [] __device__(auto i) { return i != not_found_index; });
   auto [_, null_mask, __] = key_positions->release();
   result->set_null_mask(std::move(*null_mask));
   return result;
@@ -213,10 +218,11 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                                  rmm::cuda_stream_view stream,
                                  rmm::mr::device_memory_resource* mr)
 {
-  auto key_positions = search_key.is_valid(stream)
-                        ? cudf::type_dispatcher(search_key.type(), lookup_functor<false>{}, lists, search_key, stream)
-                        : cudf::type_dispatcher(search_key.type(), lookup_functor<true>{}, lists, search_key, stream);
-  return to_contains(std::move(key_positions), stream, mr);  
+  auto key_positions =
+    search_key.is_valid(stream)
+      ? cudf::type_dispatcher(search_key.type(), lookup_functor<false>{}, lists, search_key, stream)
+      : cudf::type_dispatcher(search_key.type(), lookup_functor<true>{}, lists, search_key, stream);
+  return to_contains(std::move(key_positions), stream, mr);
 }
 
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
@@ -227,9 +233,12 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
   CUDF_EXPECTS(search_keys.size() == lists.size(),
                "Number of search keys must match list column size.");
 
-  auto key_positions = search_keys.has_nulls()
-                        ? cudf::type_dispatcher(search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream)
-                        : cudf::type_dispatcher(search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream);
+  auto key_positions =
+    search_keys.has_nulls()
+      ? cudf::type_dispatcher(
+          search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream)
+      : cudf::type_dispatcher(
+          search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream);
   return to_contains(std::move(key_positions), stream, mr);
 }
 

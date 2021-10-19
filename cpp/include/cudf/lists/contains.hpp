@@ -75,14 +75,14 @@ std::unique_ptr<column> contains(
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 enum class duplicate_find_option : int32_t {
-  FIND_FIRST = 0, ///< Finds first instance of a search key in a list row.
-  FIND_LAST       ///< Finds last instance of a search key in a list row.
+  FIND_FIRST = 0,  ///< Finds first instance of a search key in a list row.
+  FIND_LAST        ///< Finds last instance of a search key in a list row.
 };
 
 std::unique_ptr<column> index_of(
   cudf::lists_column_view const& lists,
   cudf::scalar const& search_key,
-  duplicate_find_option find_option = duplicate_find_option::FIND_LAST,
+  duplicate_find_option find_option   = duplicate_find_option::FIND_LAST,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /** @} */  // end of group
