@@ -69,7 +69,7 @@ struct lookup_functor {
   std::pair<rmm::device_buffer, size_type> construct_null_mask(lists_column_view const& input_lists,
                                                                column_view const& result_validity,
                                                                rmm::cuda_stream_view stream,
-                                                               rmm::mr::device_memory_resource* mr)
+                                                               rmm::mr::device_memory_resource* mr) const
   {
     if (!search_keys_have_nulls && !input_lists.has_nulls() && !input_lists.child().has_nulls()) {
       return {rmm::device_buffer{0, stream, mr}, size_type{0}};
@@ -88,7 +88,7 @@ struct lookup_functor {
                             cudf::mutable_column_device_view mutable_ret_bools,
                             cudf::mutable_column_device_view mutable_ret_validity,
                             rmm::cuda_stream_view stream,
-                            rmm::mr::device_memory_resource*)
+                            rmm::mr::device_memory_resource*) const
   {
     thrust::for_each(
       rmm::exec_policy(stream),
@@ -137,7 +137,7 @@ struct lookup_functor {
     cudf::lists_column_view const& lists,
     SearchKeyType const& search_key,
     rmm::cuda_stream_view stream,
-    rmm::mr::device_memory_resource* mr)
+    rmm::mr::device_memory_resource* mr) const
   {
     using namespace cudf;
     using namespace cudf::detail;
@@ -150,7 +150,7 @@ struct lookup_functor {
 
     auto constexpr search_key_is_scalar = std::is_same_v<SearchKeyType, cudf::scalar>;
 
-    if (search_keys_have_nulls && search_key_is_scalar) {
+    if constexpr (search_keys_have_nulls && search_key_is_scalar) {
       return make_fixed_width_column(data_type(type_id::BOOL8),
                                      lists.size(),
                                      cudf::create_null_mask(lists.size(), mask_state::ALL_NULL, mr),
@@ -177,10 +177,7 @@ struct lookup_functor {
     search_each_list_row<ElementType>(
       d_lists, search_key_iter, *mutable_result_bools, *mutable_result_validity, stream, mr);
 
-    rmm::device_buffer null_mask;
-    size_type num_nulls;
-
-    std::tie(null_mask, num_nulls) =
+    auto [null_mask, num_nulls] =
       construct_null_mask(lists, result_validity->view(), stream, mr);
     result_bools->set_null_mask(std::move(null_mask), num_nulls);
 
