@@ -49,7 +49,7 @@ auto get_search_keys_device_iterable_view(cudf::scalar const& search_key, rmm::c
 /**
  * @brief Functor to search each list row for the specified search keys.
  */
-template <bool search_keys_have_nulls>
+template <bool search_keys_have_nulls, bool nullify_if_lists_contain_nulls = true>
 struct lookup_functor {
   template <typename ElementType>
   struct is_supported {
@@ -123,12 +123,12 @@ struct lookup_functor {
                             return element_and_validity.second &&
                                    cudf::equality_compare(element_and_validity.first, search_key);
                           }) != list.pair_rep_end<ElementType>();
-        d_validity[row_index] =
-          d_bools[row_index] ||
-          thrust::none_of(thrust::seq,
-                          thrust::make_counting_iterator(size_type{0}),
-                          thrust::make_counting_iterator(list.size()),
-                          [&list] __device__(auto const& i) { return list.is_null(i); });
+        d_validity[row_index] = d_bools[row_index] || 
+                                !nullify_if_lists_contain_nulls ||
+                                thrust::none_of(thrust::seq,
+                                                thrust::make_counting_iterator(size_type{0}),
+                                                thrust::make_counting_iterator(list.size()),
+                                                [&list] __device__(auto const& i) { return list.is_null(i); });
       });
   }
 
