@@ -226,9 +226,9 @@ std::unique_ptr<column> index_of(
 {
   return search_key.is_valid(stream)
            ? cudf::type_dispatcher(
-               search_key.type(), lookup_functor<false>{}, lists, search_key, stream)
+               search_key.type(), lookup_functor<false>{}, lists, search_key, stream, mr)
            : cudf::type_dispatcher(
-               search_key.type(), lookup_functor<true>{}, lists, search_key, stream);
+               search_key.type(), lookup_functor<true>{}, lists, search_key, stream, mr);
 }
 
 std::unique_ptr<column> index_of(
@@ -243,9 +243,9 @@ std::unique_ptr<column> index_of(
 
   return search_keys.has_nulls()
            ? cudf::type_dispatcher(
-               search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream)
+               search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream, mr)
            : cudf::type_dispatcher(
-               search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream);
+               search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream, mr);
 }
 
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
