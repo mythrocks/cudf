@@ -85,6 +85,12 @@ std::unique_ptr<column> index_of(
   duplicate_find_option find_option   = duplicate_find_option::FIND_LAST,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<column> index_of(
+  cudf::lists_column_view const& lists,
+  cudf::column_view const& search_key,
+  duplicate_find_option find_option   = duplicate_find_option::FIND_LAST,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 /** @} */  // end of group
 }  // namespace lists
 }  // namespace cudf

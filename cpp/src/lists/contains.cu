@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <thrust/iterator/constant_iterator.h>
-#include <thrust/logical.h>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/valid_if.cuh>
@@ -27,10 +25,13 @@
 #include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/table/row_operators.cuh>
 #include <cudf/utilities/type_dispatcher.hpp>
+
 #include <rmm/exec_policy.hpp>
+
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/logical.h>
+
 #include <type_traits>
-#include "cudf/types.hpp"
-#include "rmm/mr/device/device_memory_resource.hpp"
 
 namespace cudf {
 namespace lists {
@@ -67,7 +68,8 @@ struct lookup_functor {
     Args&&...) const
   {
     CUDF_FAIL(
-      "lists::contains() is only supported on numeric types, decimals, chrono types, and strings.");
+      "List search operations are only supported on numeric types, decimals, chrono types, and "
+      "strings.");
   }
 
   std::pair<rmm::device_buffer, size_type> construct_null_mask(
@@ -167,9 +169,9 @@ struct lookup_functor {
     auto const d_lists     = lists_column_device_view{*device_view};
     auto const d_skeys     = get_search_keys_device_iterable_view(search_key, stream);
 
-    auto result_positions = make_fixed_width_column(
+    auto result_positions = make_numeric_column(
       data_type{type_id::INT32}, lists.size(), cudf::mask_state::UNALLOCATED, stream, mr);
-    auto result_validity = make_fixed_width_column(
+    auto result_validity = make_numeric_column(
       data_type{type_id::BOOL8}, lists.size(), cudf::mask_state::UNALLOCATED, stream, mr);
     auto mutable_result_positions =
       mutable_column_device_view::create(result_positions->mutable_view(), stream);
@@ -195,6 +197,8 @@ std::unique_ptr<column> to_contains(std::unique_ptr<column>&& key_positions,
                                     rmm::cuda_stream_view stream,
                                     rmm::mr::device_memory_resource* mr)
 {
+  CUDF_EXPECTS(key_positions->type().id() == type_id::INT32,
+               "Expected input column of type INT32.");
   // If position == -1, the list did not contain the search key.
   auto const num_rows        = key_positions->size();
   auto const positions_begin = key_positions->view().begin<size_type>();
@@ -213,16 +217,44 @@ std::unique_ptr<column> to_contains(std::unique_ptr<column>&& key_positions,
 
 namespace detail {
 
+std::unique_ptr<column> index_of(
+  cudf::lists_column_view const& lists,
+  cudf::scalar const& search_key,
+  duplicate_find_option find_option,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+{
+  return search_key.is_valid(stream)
+           ? cudf::type_dispatcher(
+               search_key.type(), lookup_functor<false>{}, lists, search_key, stream)
+           : cudf::type_dispatcher(
+               search_key.type(), lookup_functor<true>{}, lists, search_key, stream);
+}
+
+std::unique_ptr<column> index_of(
+  cudf::lists_column_view const& lists,
+  cudf::column_view const& search_keys,
+  duplicate_find_option find_option,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+{
+  CUDF_EXPECTS(search_keys.size() == lists.size(),
+               "Number of search keys must match list column size.");
+
+  return search_keys.has_nulls()
+           ? cudf::type_dispatcher(
+               search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream)
+           : cudf::type_dispatcher(
+               search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream);
+}
+
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                                  cudf::scalar const& search_key,
                                  rmm::cuda_stream_view stream,
                                  rmm::mr::device_memory_resource* mr)
 {
-  auto key_positions =
-    search_key.is_valid(stream)
-      ? cudf::type_dispatcher(search_key.type(), lookup_functor<false>{}, lists, search_key, stream)
-      : cudf::type_dispatcher(search_key.type(), lookup_functor<true>{}, lists, search_key, stream);
-  return to_contains(std::move(key_positions), stream, mr);
+  return to_contains(
+    index_of(lists, search_key, duplicate_find_option::FIND_FIRST, stream), stream, mr);
 }
 
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
@@ -233,13 +265,8 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
   CUDF_EXPECTS(search_keys.size() == lists.size(),
                "Number of search keys must match list column size.");
 
-  auto key_positions =
-    search_keys.has_nulls()
-      ? cudf::type_dispatcher(
-          search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream)
-      : cudf::type_dispatcher(
-          search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream);
-  return to_contains(std::move(key_positions), stream, mr);
+  return to_contains(
+    index_of(lists, search_keys, duplicate_find_option::FIND_FIRST, stream), stream, mr);
 }
 
 }  // namespace detail
@@ -258,6 +285,22 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
 {
   CUDF_FUNC_RANGE();
   return detail::contains(lists, search_keys, rmm::cuda_stream_default, mr);
+}
+
+std::unique_ptr<column> index_of(cudf::lists_column_view const& lists,
+                                 cudf::scalar const& search_key,
+                                 duplicate_find_option find_option,
+                                 rmm::mr::device_memory_resource* mr)
+{
+  return detail::index_of(lists, search_key, find_option, rmm::cuda_stream_default, mr);
+}
+
+std::unique_ptr<column> index_of(cudf::lists_column_view const& lists,
+                                 cudf::column_view const& search_keys,
+                                 duplicate_find_option find_option,
+                                 rmm::mr::device_memory_resource* mr)
+{
+  return detail::index_of(lists, search_keys, find_option, rmm::cuda_stream_default, mr);
 }
 
 }  // namespace lists
