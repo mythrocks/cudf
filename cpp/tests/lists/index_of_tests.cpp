@@ -25,6 +25,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
 namespace cudf {
@@ -39,12 +40,13 @@ template <typename T>
 struct IndexOfTypedTest : public IndexOfTest {
 };
 
-TYPED_TEST_CASE(IndexOfTypedTest, IndexOfTestTypes);
+TYPED_TEST_SUITE(IndexOfTypedTest, IndexOfTestTypes);
 
 namespace {
 
 auto constexpr absent     = size_type{-1};
 auto constexpr FIND_FIRST = lists::duplicate_find_option::FIND_FIRST;
+auto constexpr FIND_LAST  = lists::duplicate_find_option::FIND_LAST;
 
 template <typename T, std::enable_if_t<cudf::is_numeric<T>(), void>* = nullptr>
 auto create_scalar_search_key(T const& value)
@@ -105,61 +107,75 @@ auto create_null_search_key()
 
 }  // namespace
 
+using iterators::null_at;
+using iterators::nulls_at;
+using indices = fixed_width_column_wrapper<size_type>;
+
 TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNoNulls)
 {
   using T = TypeParam;
 
-  auto search_space = lists_column_wrapper<T, int32_t>{
-    {0, 1, 2},
+  auto search_space = lists_column_view{lists_column_wrapper<T, int32_t>{
+    {0, 1, 2, 1},
     {3, 4, 5},
     {6, 7, 8},
-    {9, 0, 1},
+    {9, 0, 1, 3, 1},
     {2, 3, 4},
     {5, 6, 7},
     {8, 9, 0},
     {},
-    {1, 2, 3},
-    {}}.release();
+    {1, 2, 1, 3},
+    {}}};
   auto search_key_one = create_scalar_search_key<T>(1);
 
   {
-    auto actual_result   = lists::index_of(search_space->view(), *search_key_one, FIND_FIRST);
-    auto expected_result = fixed_width_column_wrapper<size_type>{
-      1, absent, absent, 2, absent, absent, absent, absent, 0, absent};
+    // FIND_FIRST
+    auto actual_result   = lists::index_of(search_space, *search_key_one, FIND_FIRST);
+    auto expected_result = indices{1, absent, absent, 2, absent, absent, absent, absent, 0, absent};
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, *actual_result);
+  }
+  {
+    // FIND_LAST
+    auto actual_result   = lists::index_of(search_space, *search_key_one, FIND_LAST);
+    auto expected_result = indices{3, absent, absent, 4, absent, absent, absent, absent, 2, absent};
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, *actual_result);
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, ListContainsScalarWithNullLists)
+TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNullLists)
 {
   // Test List columns that have NULL list rows.
-
   using T = TypeParam;
 
-  auto search_space = lists_column_wrapper<T, int32_t>{
-    {{0, 1, 2},
+  auto search_space = lists_column_view{lists_column_wrapper<T, int32_t>{
+    {{0, 1, 2, 1},
      {3, 4, 5},
      {6, 7, 8},
      {},
-     {9, 0, 1},
+     {9, 0, 1, 3, 1},
      {2, 3, 4},
      {5, 6, 7},
      {8, 9, 0},
      {},
-     {1, 2, 3},
-     {}},
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) {
-      return (i != 3) && (i != 10);
-    })}.release();
+     {1, 2, 2, 3},
+     {}}, 
+     nulls_at({3, 10})
+    }};
 
-  auto search_key_one = create_scalar_search_key<T>(1);
-  auto actual_result  = lists::contains(search_space->view(), *search_key_one);
-  auto expected_result =
-    fixed_width_column_wrapper<bool>{{1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0},
-                                     cudf::detail::make_counting_transform_iterator(
-                                       0, [](auto i) { return (i != 3) && (i != 10); })};
-
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, *actual_result);
+  {
+    // FIND_FIRST
+    auto search_key_one  = create_scalar_search_key<T>(1);
+    auto actual_result   = lists::index_of(search_space, *search_key_one, FIND_FIRST);
+    auto expected_result = indices{{1, absent, absent, 0, 2, absent, absent, absent, absent, 0, 0}, nulls_at({3,10})};
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, *actual_result);
+  }
+  {
+    // FIND_LAST
+    auto search_key_one  = create_scalar_search_key<T>(1);
+    auto actual_result   = lists::index_of(search_space, *search_key_one, FIND_LAST);
+    auto expected_result = indices{{3, absent, absent, 0, 4, absent, absent, absent, absent, 0, 0}, nulls_at({3,10})};
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, *actual_result);
+  }
 }
 
 TYPED_TEST(IndexOfTypedTest, SlicedLists)

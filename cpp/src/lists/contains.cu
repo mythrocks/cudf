@@ -54,6 +54,46 @@ auto get_search_keys_device_iterable_view(cudf::scalar const& search_key, rmm::c
 enum if_lists_contain_nulls : bool { DONT_NULLIFY = false, NULLIFY = true };
 enum search_key_nulls : bool { NO_NULLS = false, HAS_NULLS = true };
 
+template <duplicate_find_option = duplicate_find_option::FIND_FIRST>
+struct finder
+{
+  template <typename ElementType>
+  __device__ thrust::pair<size_type, bool> operator()(list_device_view const& list,
+                                                      ElementType const& search_key) const
+  {
+    auto const list_begin = list.pair_rep_begin<ElementType>();
+    auto const list_end   = list.pair_rep_end<ElementType>();
+    auto const find_iter  = thrust::find_if(
+      thrust::seq, list_begin, list_end, [search_key] __device__(auto element_and_validity) {
+        return element_and_validity.second &&
+              cudf::equality_compare(element_and_validity.first, search_key);
+      });
+    auto const is_found = find_iter != list_end;
+    auto const position = is_found ? (find_iter - list_begin) : absent_index;
+    return {position, is_found};
+  };
+};
+
+template <>
+struct finder<duplicate_find_option::FIND_LAST>
+{
+  template <typename ElementType>
+  __device__ thrust::pair<size_type, bool> operator()(list_device_view const& list,
+                                                      ElementType const& search_key) const
+  {
+    auto const begin = thrust::make_reverse_iterator(list.pair_rep_end<ElementType>());
+    auto const end   = thrust::make_reverse_iterator(list.pair_rep_begin<ElementType>());
+    auto const find_iter  = thrust::find_if(
+      thrust::seq, begin, end, [search_key] __device__(auto element_and_validity) {
+        return element_and_validity.second &&
+              cudf::equality_compare(element_and_validity.first, search_key);
+      });
+    auto const is_found = find_iter != end;
+    auto const position = is_found ? (end - find_iter - 1) : absent_index;
+    return {position, is_found};
+  };
+};
+
 /**
  * @brief Functor to search each list row for the specified search keys.
  */
@@ -93,37 +133,22 @@ struct lookup_functor {
     }
   }
 
-  template <duplicate_find_option = duplicate_find_option::FIND_FIRST, typename ElementType>
-  __device__ static thrust::pair<size_type, bool> find(list_device_view const& list,
-                                                       ElementType const& search_key)
-  {
-    auto const list_begin = list.pair_rep_begin<ElementType>();
-    auto const list_end   = list.pair_rep_end<ElementType>();
-    auto const find_iter  = thrust::find_if(
-      thrust::seq, list_begin, list_end, [search_key] __device__(auto element_and_validity) {
-        return element_and_validity.second &&
-               cudf::equality_compare(element_and_validity.first, search_key);
-      });
-    auto const is_found = find_iter != list_end;
-    auto const position = is_found ? (find_iter - list_begin) : absent_index;
-    return {position, is_found};
-  }
-
   template <typename ElementType, typename SearchKeyPairIter>
   void search_each_list_row(cudf::detail::lists_column_device_view const& d_lists,
                             SearchKeyPairIter search_key_pair_iter,
-                            cudf::mutable_column_device_view mutable_ret_positions,
-                            cudf::mutable_column_device_view mutable_ret_validity,
+                            duplicate_find_option find_option,
+                            cudf::mutable_column_device_view ret_positions,
+                            cudf::mutable_column_device_view ret_validity,
                             rmm::cuda_stream_view stream) const
   {
     auto output_iterator = thrust::make_zip_iterator(thrust::make_tuple(
-      mutable_ret_positions.data<size_type>(), mutable_ret_validity.data<bool>()));
+      ret_positions.data<size_type>(), ret_validity.data<bool>()));
 
     thrust::tabulate(
       rmm::exec_policy(stream),
       output_iterator,
       output_iterator + d_lists.size(),
-      [d_lists, search_key_pair_iter, absent_index = absent_index] __device__(
+      [d_lists, search_key_pair_iter, absent_index = absent_index, find_option] __device__(
         auto row_index) -> thrust::pair<size_type, bool> {
         auto [search_key, search_key_is_valid] = search_key_pair_iter[row_index];
 
@@ -132,7 +157,10 @@ struct lookup_functor {
         auto list = cudf::list_device_view(d_lists, row_index);
         if (list.is_null()) { return {absent_index, false}; }
 
-        auto const [position, is_found] = find<duplicate_find_option::FIND_FIRST>(list, search_key);
+        auto const [position, is_found] = 
+          find_option == duplicate_find_option::FIND_FIRST
+          ? finder<duplicate_find_option::FIND_FIRST>{}(list, search_key)
+          : finder<duplicate_find_option::FIND_LAST >{}(list, search_key);
         bool is_valid =
           is_found || !nullify_if_lists_contain_nulls ||
           thrust::none_of(thrust::seq,
@@ -147,6 +175,7 @@ struct lookup_functor {
   std::enable_if_t<is_supported<ElementType>::value, std::unique_ptr<column>> operator()(
     cudf::lists_column_view const& lists,
     SearchKeyType const& search_key,
+    duplicate_find_option find_option,
     rmm::cuda_stream_view stream,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource()) const
   {
@@ -186,7 +215,7 @@ struct lookup_functor {
       cudf::detail::make_pair_rep_iterator<ElementType, search_keys_have_nulls>(*d_skeys);
 
     search_each_list_row<ElementType>(
-      d_lists, search_key_iter, *mutable_result_positions, *mutable_result_validity, stream);
+      d_lists, search_key_iter, find_option, *mutable_result_positions, *mutable_result_validity, stream);
 
     auto [null_mask, num_nulls] = construct_null_mask(lists, result_validity->view(), stream, mr);
     result_positions->set_null_mask(std::move(null_mask), num_nulls);
@@ -235,12 +264,14 @@ std::unique_ptr<column> index_of(
                                    lookup_functor<search_key_nulls::NO_NULLS, nullify>{},
                                    lists,
                                    search_key,
+                                   find_option,
                                    stream,
                                    mr)
            : cudf::type_dispatcher(search_key.type(),
                                    lookup_functor<search_key_nulls::HAS_NULLS, nullify>{},
                                    lists,
                                    search_key,
+                                   find_option,
                                    stream,
                                    mr);
 }
@@ -261,12 +292,14 @@ std::unique_ptr<column> index_of(
                                    lookup_functor<search_key_nulls::HAS_NULLS, nullify>{},
                                    lists,
                                    search_keys,
+                                   find_option,
                                    stream,
                                    mr)
            : cudf::type_dispatcher(search_keys.type(),
                                    lookup_functor<search_key_nulls::NO_NULLS, nullify>{},
                                    lists,
                                    search_keys,
+                                   find_option,
                                    stream,
                                    mr);
 }
