@@ -181,53 +181,61 @@ TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNullLists)
 TYPED_TEST(IndexOfTypedTest, SlicedLists)
 {
   // Test sliced List columns.
-
   using namespace cudf;
-
   using T     = TypeParam;
-  using bools = fixed_width_column_wrapper<bool>;
 
   auto search_space = lists_column_wrapper<T, int32_t>{
-    {{0, 1, 2},
+    {{0, 1, 2, 1},
      {3, 4, 5},
      {6, 7, 8},
      {},
-     {9, 0, 1},
+     {9, 0, 1, 3, 1},
      {2, 3, 4},
      {5, 6, 7},
      {8, 9, 0},
      {},
-     {1, 2, 3},
-     {}},
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) {
-      return (i != 3) && (i != 10);
-    })}.release();
+     {1, 2, 1, 3},
+     {}}, nulls_at({3, 10})
+    };
 
-  auto sliced_column_1 = cudf::detail::slice(search_space->view(), {1, 8}).front();
+  {
+    // First Slice.
+    auto sliced_column_1 = cudf::detail::slice(search_space, {1, 8}).front();
+    auto search_key_one  = create_scalar_search_key<T>(1);
+    {
+      // FIND_FIRST
+      auto result          = lists::index_of(sliced_column_1, *search_key_one, FIND_FIRST);
+      auto expected_result = indices{{absent, absent, 0, 2, absent, absent, absent}, null_at(2)};
+      CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, result->view());
+    }
+    {
+      // FIND_LAST
+      auto result          = lists::index_of(sliced_column_1, *search_key_one, FIND_LAST);
+      auto expected_result = indices{{absent, absent, 0, 4, absent, absent, absent}, null_at(2)};
+      CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, result->view());
+    }
+  }
 
-  auto search_key_one = create_scalar_search_key<T>(1);
-  auto result_1       = lists::contains(sliced_column_1, *search_key_one);
-
-  auto expected_result_1 = bools{
-    {0, 0, 0, 1, 0, 0, 0}, cudf::detail::make_counting_transform_iterator(0, [](auto i) {
-      return (i != 2);
-    })}.release();
-
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result_1->view(), result_1->view());
-
-  auto sliced_column_2 = cudf::detail::slice(search_space->view(), {3, 10}).front();
-
-  auto result_2 = lists::contains(sliced_column_2, *search_key_one);
-
-  auto expected_result_2 = bools{
-    {0, 1, 0, 0, 0, 0, 1}, cudf::detail::make_counting_transform_iterator(0, [](auto i) {
-      return (i != 0);
-    })}.release();
-
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result_2->view(), result_2->view());
+  {
+    // Second Slice.
+    auto sliced_column_2 = cudf::detail::slice(search_space, {3, 10}).front();
+    auto search_key_one  = create_scalar_search_key<T>(1);
+    {
+      // FIND_FIRST
+      auto result = lists::index_of(sliced_column_2, *search_key_one, FIND_FIRST);
+      auto expected_result = indices{{0, 2, absent, absent, absent, absent, 0}, null_at(0)};
+      CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, result->view());
+    }
+    {
+      // FIND_LAST
+      auto result = lists::index_of(sliced_column_2, *search_key_one, FIND_LAST);
+      auto expected_result = indices{{0, 4, absent, absent, absent, absent, 2}, null_at(0)};
+      CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_result, result->view());
+    }
+  }
 }
 
-TYPED_TEST(IndexOfTypedTest, ListContainsScalarNonNullListsWithNullValues)
+TYPED_TEST(IndexOfTypedTest, ScalarKeyNonNullListsWithNullValues)
 {
   // Test List columns that have no NULL list rows, but NULL elements in some list rows.
   using T = TypeParam;
