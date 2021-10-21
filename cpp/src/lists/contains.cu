@@ -51,10 +51,15 @@ auto get_search_keys_device_iterable_view(cudf::scalar const& search_key, rmm::c
   return &search_key;
 }
 
+enum if_lists_contain_nulls : bool { DONT_NULLIFY = false, NULLIFY = true };
+
+enum search_key_nulls : bool { NO_NULLS = false, HAS_NULLS = true };
+
 /**
  * @brief Functor to search each list row for the specified search keys.
  */
-template <bool search_keys_have_nulls, bool nullify_if_lists_contain_nulls = true>
+template <search_key_nulls search_keys_have_nulls,
+          if_lists_contain_nulls nullify_if_lists_contain_nulls = if_lists_contain_nulls::NULLIFY>
 struct lookup_functor {
   template <typename ElementType>
   struct is_supported {
@@ -217,6 +222,7 @@ std::unique_ptr<column> to_contains(std::unique_ptr<column>&& key_positions,
 
 namespace detail {
 
+template <if_lists_contain_nulls nullify = if_lists_contain_nulls::DONT_NULLIFY>
 std::unique_ptr<column> index_of(
   cudf::lists_column_view const& lists,
   cudf::scalar const& search_key,
@@ -225,12 +231,21 @@ std::unique_ptr<column> index_of(
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
   return search_key.is_valid(stream)
-           ? cudf::type_dispatcher(
-               search_key.type(), lookup_functor<false>{}, lists, search_key, stream, mr)
-           : cudf::type_dispatcher(
-               search_key.type(), lookup_functor<true>{}, lists, search_key, stream, mr);
+           ? cudf::type_dispatcher(search_key.type(),
+                                   lookup_functor<search_key_nulls::NO_NULLS, nullify>{},
+                                   lists,
+                                   search_key,
+                                   stream,
+                                   mr)
+           : cudf::type_dispatcher(search_key.type(),
+                                   lookup_functor<search_key_nulls::HAS_NULLS, nullify>{},
+                                   lists,
+                                   search_key,
+                                   stream,
+                                   mr);
 }
 
+template <if_lists_contain_nulls nullify = if_lists_contain_nulls::DONT_NULLIFY>
 std::unique_ptr<column> index_of(
   cudf::lists_column_view const& lists,
   cudf::column_view const& search_keys,
@@ -242,10 +257,18 @@ std::unique_ptr<column> index_of(
                "Number of search keys must match list column size.");
 
   return search_keys.has_nulls()
-           ? cudf::type_dispatcher(
-               search_keys.type(), lookup_functor<true>{}, lists, search_keys, stream, mr)
-           : cudf::type_dispatcher(
-               search_keys.type(), lookup_functor<false>{}, lists, search_keys, stream, mr);
+           ? cudf::type_dispatcher(search_keys.type(),
+                                   lookup_functor<search_key_nulls::HAS_NULLS, nullify>{},
+                                   lists,
+                                   search_keys,
+                                   stream,
+                                   mr)
+           : cudf::type_dispatcher(search_keys.type(),
+                                   lookup_functor<search_key_nulls::NO_NULLS, nullify>{},
+                                   lists,
+                                   search_keys,
+                                   stream,
+                                   mr);
 }
 
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
@@ -253,8 +276,10 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                                  rmm::cuda_stream_view stream,
                                  rmm::mr::device_memory_resource* mr)
 {
-  return to_contains(
-    index_of(lists, search_key, duplicate_find_option::FIND_FIRST, stream), stream, mr);
+  return to_contains(index_of<if_lists_contain_nulls::NULLIFY>(
+                       lists, search_key, duplicate_find_option::FIND_FIRST, stream),
+                     stream,
+                     mr);
 }
 
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
@@ -265,8 +290,10 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
   CUDF_EXPECTS(search_keys.size() == lists.size(),
                "Number of search keys must match list column size.");
 
-  return to_contains(
-    index_of(lists, search_keys, duplicate_find_option::FIND_FIRST, stream), stream, mr);
+  return to_contains(index_of<if_lists_contain_nulls::NULLIFY>(
+                       lists, search_keys, duplicate_find_option::FIND_FIRST, stream),
+                     stream,
+                     mr);
 }
 
 }  // namespace detail
@@ -292,6 +319,7 @@ std::unique_ptr<column> index_of(cudf::lists_column_view const& lists,
                                  duplicate_find_option find_option,
                                  rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   return detail::index_of(lists, search_key, find_option, rmm::cuda_stream_default, mr);
 }
 
@@ -300,6 +328,7 @@ std::unique_ptr<column> index_of(cudf::lists_column_view const& lists,
                                  duplicate_find_option find_option,
                                  rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   return detail::index_of(lists, search_keys, find_option, rmm::cuda_stream_default, mr);
 }
 
