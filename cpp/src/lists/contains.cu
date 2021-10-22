@@ -51,9 +51,35 @@ auto get_search_keys_device_iterable_view(cudf::scalar const& search_key, rmm::c
   return &search_key;
 }
 
+/**
+ * @brief Choice of nullification semantics to be used with `cudf::lists::detail::index_of<>`.
+ *
+ * `index_of()` and `contains()` are similar in their semantics. While `index_of()` returns
+ * the position of a search key in each list row, `contains()` returns an equivalent `bool`,
+ * indicating whether the list row contains the search key.
+ *
+ * The nullification semantics of `index_of()` and `contains()` differ crucially in the case
+ * where both the following conditions are met:
+ *  1. The list row does not contain the search key
+ *  2. *and* the list row also contains nulls
+ *
+ * For any list row where both the above hold true:
+ *  1. `contains()` returns `null` for that row
+ *  2. `index_of()` returns `-1`, indicating that the row wasn't found.
+ *
+ * The `if_lists_contain_nulls` enum facilitates the choice of strategy in
+ * `cudf::lists::detail::index_of()`, used to implement both `index_of()` and `contains()`.
+ */
 enum if_lists_contain_nulls : bool { DONT_NULLIFY = false, NULLIFY = true };
+
+/**
+ * @brief Enum to indicate whether the `search_key` scalar/column contains nulls.
+ */
 enum search_key_nulls : bool { NO_NULLS = false, HAS_NULLS = true };
 
+/**
+ * @brief __device__ functor to search for a key in a `list_device_view`.
+ */
 template <duplicate_find_option = duplicate_find_option::FIND_FIRST>
 struct finder {
   template <typename ElementType>
@@ -252,7 +278,17 @@ std::unique_ptr<column> to_contains(std::unique_ptr<column>&& key_positions,
 }  // namespace
 
 namespace detail {
-
+/**
+ * @copydoc cudf::lists::index_of(cudf::lists_column_view const&,
+ *                                cudf::scalar const&,
+ *                                duplicate_find_option,
+ *                                rmm::mr::device_memory_resource*)
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @tparam nullify Choice of nullification semantics:
+ *   1. Whether to nullify the output if the search key is not found *and* the list
+ *      contains null elements, as in `cudf::lists::contains()`
+ *   2. Not to nullify the output even if the search key isn't found.
+ */
 template <if_lists_contain_nulls nullify = if_lists_contain_nulls::DONT_NULLIFY>
 std::unique_ptr<column> index_of(
   cudf::lists_column_view const& lists,
@@ -278,6 +314,18 @@ std::unique_ptr<column> index_of(
                                    mr);
 }
 
+/**
+ * @copydoc cudf::lists::index_of(cudf::lists_column_view const&,
+ *                                cudf::column_view const&,
+ *                                duplicate_find_option,
+ *                                rmm::mr::device_memory_resource*)
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @tparam nullify Choice of nullification semantics:
+ *   1. Whether to nullify the output if the search key is not found *and* the list
+ *      contains null elements, as in `cudf::lists::contains()`
+ *   2. Not to nullify the output even if the search key isn't found as with
+ *      `cudf::lists::index_of()`.
+ */
 template <if_lists_contain_nulls nullify = if_lists_contain_nulls::DONT_NULLIFY>
 std::unique_ptr<column> index_of(
   cudf::lists_column_view const& lists,
@@ -306,6 +354,12 @@ std::unique_ptr<column> index_of(
                                    mr);
 }
 
+/**
+ * @copydoc cudf::lists::contains(cudf::lists_column_view const&,
+ *                                cudf::scalar const&,
+ *                                rmm::mr::device_memory_resource*)
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ */
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                                  cudf::scalar const& search_key,
                                  rmm::cuda_stream_view stream,
@@ -317,6 +371,12 @@ std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                      mr);
 }
 
+/**
+ * @copydoc cudf::lists::contains(cudf::lists_column_view const&,
+ *                                cudf::column_view const&,
+ *                                rmm::mr::device_memory_resource*)
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ */
 std::unique_ptr<column> contains(cudf::lists_column_view const& lists,
                                  cudf::column_view const& search_keys,
                                  rmm::cuda_stream_view stream,
