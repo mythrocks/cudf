@@ -31,16 +31,16 @@
 namespace cudf {
 namespace test {
 
-struct IndexOfTest : public BaseFixture {
+struct ContainsTest : public BaseFixture {
 };
 
 using IndexOfTestTypes = Concat<IntegralTypesNotBool, FloatingPointTypes, ChronoTypes>;
 
 template <typename T>
-struct IndexOfTypedTest : public IndexOfTest {
+struct TypedContainsTest : public ContainsTest {
 };
 
-TYPED_TEST_SUITE(IndexOfTypedTest, IndexOfTestTypes);
+TYPED_TEST_SUITE(TypedContainsTest, IndexOfTestTypes);
 
 namespace {
 
@@ -114,7 +114,7 @@ using iterators::nulls_at;
 using bools   = fixed_width_column_wrapper<bool>;
 using indices = fixed_width_column_wrapper<size_type>;
 
-TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNoNulls)
+TYPED_TEST(TypedContainsTest, ScalarKeyWithNoNulls)
 {
   using T = TypeParam;
 
@@ -150,7 +150,7 @@ TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNoNulls)
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNullLists)
+TYPED_TEST(TypedContainsTest, ScalarKeyWithNullLists)
 {
   // Test List columns that have NULL list rows.
   using T = TypeParam;
@@ -190,7 +190,7 @@ TYPED_TEST(IndexOfTypedTest, ScalarKeyWithNullLists)
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, SlicedLists)
+TYPED_TEST(TypedContainsTest, SlicedLists)
 {
   // Test sliced List columns.
   using namespace cudf;
@@ -258,7 +258,7 @@ TYPED_TEST(IndexOfTypedTest, SlicedLists)
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, ScalarKeyNonNullListsWithNullValues)
+TYPED_TEST(TypedContainsTest, ScalarKeyNonNullListsWithNullValues)
 {
   // Test List columns that have no NULL list rows, but NULL elements in some list rows.
   using T = TypeParam;
@@ -289,7 +289,7 @@ TYPED_TEST(IndexOfTypedTest, ScalarKeyNonNullListsWithNullValues)
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, ScalarKeysWithNullsInLists)
+TYPED_TEST(TypedContainsTest, ScalarKeysWithNullsInLists)
 {
   using T = TypeParam;
 
@@ -326,7 +326,7 @@ TYPED_TEST(IndexOfTypedTest, ScalarKeysWithNullsInLists)
   }
 }
 
-TEST_F(IndexOfTest, BoolScalarWithNullsInLists)
+TEST_F(ContainsTest, BoolScalarWithNullsInLists)
 {
   using T = bool;
 
@@ -362,7 +362,7 @@ TEST_F(IndexOfTest, BoolScalarWithNullsInLists)
   }
 }
 
-TEST_F(IndexOfTest, StringScalarWithNullsInLists)
+TEST_F(ContainsTest, StringScalarWithNullsInLists)
 {
   using T = std::string;
 
@@ -399,7 +399,7 @@ TEST_F(IndexOfTest, StringScalarWithNullsInLists)
   }
 }
 
-TYPED_TEST(IndexOfTypedTest, ScalarNullSearchKey)
+TYPED_TEST(TypedContainsTest, ScalarNullSearchKey)
 {
   using T = TypeParam;
 
@@ -437,7 +437,7 @@ TYPED_TEST(IndexOfTypedTest, ScalarNullSearchKey)
   }
 }
 
-TEST_F(IndexOfTest, ScalarTypeRelatedExceptions)
+TEST_F(ContainsTest, ScalarTypeRelatedExceptions)
 {
   {
     // Nested types unsupported.
@@ -473,15 +473,15 @@ TEST_F(IndexOfTest, ScalarTypeRelatedExceptions)
 }
 
 template <typename T>
-struct VectorSearchTypedTest : public IndexOfTest {
+struct TypedVectorContainsTest : public ContainsTest {
 };
 
 using VectorTestTypes =
   cudf::test::Concat<cudf::test::IntegralTypesNotBool, cudf::test::FloatingPointTypes>;
 
-TYPED_TEST_SUITE(VectorSearchTypedTest, VectorTestTypes);
+TYPED_TEST_SUITE(TypedVectorContainsTest, VectorTestTypes);
 
-TYPED_TEST(VectorSearchTypedTest, VectorKeysWithNoNulls)
+TYPED_TEST(TypedVectorContainsTest, VectorKeysWithNoNulls)
 {
   using T = TypeParam;
 
@@ -518,7 +518,7 @@ TYPED_TEST(VectorSearchTypedTest, VectorKeysWithNoNulls)
   }
 }
 
-TYPED_TEST(VectorSearchTypedTest, VectorWithNullLists)
+TYPED_TEST(TypedVectorContainsTest, VectorWithNullLists)
 {
   // Test List columns that have NULL list rows.
 
@@ -562,7 +562,7 @@ TYPED_TEST(VectorSearchTypedTest, VectorWithNullLists)
   }
 }
 
-TYPED_TEST(VectorSearchTypedTest, VectorNonNullListsWithNullValues)
+TYPED_TEST(TypedVectorContainsTest, VectorNonNullListsWithNullValues)
 {
   // Test List columns that have no NULL list rows, but NULL elements in some list rows.
   using T = TypeParam;
@@ -594,7 +594,7 @@ TYPED_TEST(VectorSearchTypedTest, VectorNonNullListsWithNullValues)
   }
 }
 
-TYPED_TEST(VectorSearchTypedTest, VectorWithNullsInLists)
+TYPED_TEST(TypedVectorContainsTest, VectorWithNullsInLists)
 {
   using T = TypeParam;
 
@@ -632,7 +632,7 @@ TYPED_TEST(VectorSearchTypedTest, VectorWithNullsInLists)
   }
 }
 
-TYPED_TEST(VectorSearchTypedTest, ListContainsVectorWithNullsInListsAndInSearchKeys)
+TYPED_TEST(TypedVectorContainsTest, ListContainsVectorWithNullsInListsAndInSearchKeys)
 {
   using T = TypeParam;
 
@@ -670,7 +670,7 @@ TYPED_TEST(VectorSearchTypedTest, ListContainsVectorWithNullsInListsAndInSearchK
   }
 }
 
-TEST_F(IndexOfTest, BoolKeyVectorWithNullsInListsAndInSearchKeys)
+TEST_F(ContainsTest, BoolKeyVectorWithNullsInListsAndInSearchKeys)
 {
   using T = bool;
 
@@ -709,7 +709,7 @@ TEST_F(IndexOfTest, BoolKeyVectorWithNullsInListsAndInSearchKeys)
   }
 }
 
-TEST_F(IndexOfTest, StringKeyVectorWithNullsInListsAndInSearchKeys)
+TEST_F(ContainsTest, StringKeyVectorWithNullsInListsAndInSearchKeys)
 {
   auto strings = strings_column_wrapper{
     {"X", "1", "2", "X", "4", "5", "X", "7", "8", "X", "X", "1", "2", "X", "1"},
@@ -747,7 +747,7 @@ TEST_F(IndexOfTest, StringKeyVectorWithNullsInListsAndInSearchKeys)
   }
 }
 
-TEST_F(IndexOfTest, VectorTypeRelatedExceptions)
+TEST_F(ContainsTest, VectorTypeRelatedExceptions)
 {
   {
     // Nested types unsupported.
@@ -794,10 +794,10 @@ TEST_F(IndexOfTest, VectorTypeRelatedExceptions)
 }
 
 template <typename T>
-struct IndexOfNaNsTypedTest : public IndexOfTest {
+struct TypedContainsNaNsTest : public ContainsTest {
 };
 
-TYPED_TEST_SUITE(IndexOfNaNsTypedTest, FloatingPointTypes);
+TYPED_TEST_SUITE(TypedContainsNaNsTest, FloatingPointTypes);
 
 namespace {
 template <typename T>
@@ -813,7 +813,7 @@ float get_nan<float>(const char* nan_contents)
 }
 }  // namespace
 
-TYPED_TEST(IndexOfNaNsTypedTest, ListWithNaNsScalar)
+TYPED_TEST(TypedContainsNaNsTest, ListWithNaNsScalar)
 {
   using T = TypeParam;
 
@@ -854,7 +854,7 @@ TYPED_TEST(IndexOfNaNsTypedTest, ListWithNaNsScalar)
   }
 }
 
-TYPED_TEST(IndexOfNaNsTypedTest, ListWithNaNsContainsVector)
+TYPED_TEST(TypedContainsNaNsTest, ListWithNaNsContainsVector)
 {
   // Test that different bit representations of NaN values
   // are recognized as NaN.
@@ -938,12 +938,12 @@ TYPED_TEST(IndexOfNaNsTypedTest, ListWithNaNsContainsVector)
 }
 
 template <typename T>
-struct IndexOfDecimalsTypedTest : public IndexOfTest {
+struct TypedContainsDecimalsTest : public ContainsTest {
 };
 
-TYPED_TEST_SUITE(IndexOfDecimalsTypedTest, FixedPointTypes);
+TYPED_TEST_SUITE(TypedContainsDecimalsTest, FixedPointTypes);
 
-TYPED_TEST(IndexOfDecimalsTypedTest, ScalarKey)
+TYPED_TEST(TypedContainsDecimalsTest, ScalarKey)
 {
   using T = TypeParam;
 
@@ -957,8 +957,7 @@ TYPED_TEST(IndexOfDecimalsTypedTest, ScalarKey)
   }();
   auto search_key_one = make_fixed_point_scalar<T>(typename T::rep{1}, numeric::scale_type{0});
 
-  // Search space: [ [0,1,2], [3,4,5], [6,7,8], [9,0,1], [2,3,4], [5,6,7], [8,9,0], [], [1,2,3], []
-  // ]
+  // Search space: [[0,1,2], [3,4,5], [6,7,8], [9,0,1], [2,3,4], [5,6,7], [8,9,0], [], [1,2,3], []]
   {
     // CONTAINS
     auto result   = lists::contains(search_space->view(), *search_key_one);
@@ -979,7 +978,7 @@ TYPED_TEST(IndexOfDecimalsTypedTest, ScalarKey)
   }
 }
 
-TYPED_TEST(IndexOfDecimalsTypedTest, VectorKey)
+TYPED_TEST(TypedContainsDecimalsTest, VectorKey)
 {
   using T = TypeParam;
 
