@@ -55,8 +55,7 @@ enum if_lists_contain_nulls : bool { DONT_NULLIFY = false, NULLIFY = true };
 enum search_key_nulls : bool { NO_NULLS = false, HAS_NULLS = true };
 
 template <duplicate_find_option = duplicate_find_option::FIND_FIRST>
-struct finder
-{
+struct finder {
   template <typename ElementType>
   __device__ thrust::pair<size_type, bool> operator()(list_device_view const& list,
                                                       ElementType const& search_key) const
@@ -66,7 +65,7 @@ struct finder
     auto const find_iter  = thrust::find_if(
       thrust::seq, list_begin, list_end, [search_key] __device__(auto element_and_validity) {
         return element_and_validity.second &&
-              cudf::equality_compare(element_and_validity.first, search_key);
+               cudf::equality_compare(element_and_validity.first, search_key);
       });
     auto const is_found = find_iter != list_end;
     auto const position = is_found ? (find_iter - list_begin) : absent_index;
@@ -75,18 +74,17 @@ struct finder
 };
 
 template <>
-struct finder<duplicate_find_option::FIND_LAST>
-{
+struct finder<duplicate_find_option::FIND_LAST> {
   template <typename ElementType>
   __device__ thrust::pair<size_type, bool> operator()(list_device_view const& list,
                                                       ElementType const& search_key) const
   {
     auto const begin = thrust::make_reverse_iterator(list.pair_rep_end<ElementType>());
     auto const end   = thrust::make_reverse_iterator(list.pair_rep_begin<ElementType>());
-    auto const find_iter  = thrust::find_if(
-      thrust::seq, begin, end, [search_key] __device__(auto element_and_validity) {
+    auto const find_iter =
+      thrust::find_if(thrust::seq, begin, end, [search_key] __device__(auto element_and_validity) {
         return element_and_validity.second &&
-              cudf::equality_compare(element_and_validity.first, search_key);
+               cudf::equality_compare(element_and_validity.first, search_key);
       });
     auto const is_found = find_iter != end;
     auto const position = is_found ? (end - find_iter - 1) : absent_index;
@@ -141,8 +139,8 @@ struct lookup_functor {
                             cudf::mutable_column_device_view ret_validity,
                             rmm::cuda_stream_view stream) const
   {
-    auto output_iterator = thrust::make_zip_iterator(thrust::make_tuple(
-      ret_positions.data<size_type>(), ret_validity.data<bool>()));
+    auto output_iterator = thrust::make_zip_iterator(
+      thrust::make_tuple(ret_positions.data<size_type>(), ret_validity.data<bool>()));
 
     thrust::tabulate(
       rmm::exec_policy(stream),
@@ -157,10 +155,10 @@ struct lookup_functor {
         auto list = cudf::list_device_view(d_lists, row_index);
         if (list.is_null()) { return {absent_index, false}; }
 
-        auto const [position, is_found] = 
+        auto const [position, is_found] =
           find_option == duplicate_find_option::FIND_FIRST
-          ? finder<duplicate_find_option::FIND_FIRST>{}(list, search_key)
-          : finder<duplicate_find_option::FIND_LAST >{}(list, search_key);
+            ? finder<duplicate_find_option::FIND_FIRST>{}(list, search_key)
+            : finder<duplicate_find_option::FIND_LAST>{}(list, search_key);
         bool is_valid =
           is_found || !nullify_if_lists_contain_nulls ||
           thrust::none_of(thrust::seq,
@@ -183,7 +181,7 @@ struct lookup_functor {
     using namespace cudf::detail;
 
     CUDF_EXPECTS(!cudf::is_nested(lists.child().type()),
-                 "Nested types not supported in lists::contains()");
+                 "Nested types not supported in list search operations.");
     CUDF_EXPECTS(lists.child().type() == search_key.type(),
                  "Type/Scale of search key does not match list column element type.");
     CUDF_EXPECTS(search_key.type().id() != type_id::EMPTY, "Type cannot be empty.");
@@ -214,8 +212,12 @@ struct lookup_functor {
     auto search_key_iter =
       cudf::detail::make_pair_rep_iterator<ElementType, search_keys_have_nulls>(*d_skeys);
 
-    search_each_list_row<ElementType>(
-      d_lists, search_key_iter, find_option, *mutable_result_positions, *mutable_result_validity, stream);
+    search_each_list_row<ElementType>(d_lists,
+                                      search_key_iter,
+                                      find_option,
+                                      *mutable_result_positions,
+                                      *mutable_result_validity,
+                                      stream);
 
     auto [null_mask, num_nulls] = construct_null_mask(lists, result_validity->view(), stream, mr);
     result_positions->set_null_mask(std::move(null_mask), num_nulls);

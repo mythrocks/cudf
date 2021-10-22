@@ -346,7 +346,7 @@ TEST_F(ContainsTest, ScalarTypeRelatedExceptions)
        {4, 5, 6}}}.release();
     auto skey = create_scalar_search_key<int32_t>(10);
     CUDF_EXPECT_THROW_MESSAGE(lists::contains(list_of_lists->view(), *skey),
-                              "Nested types not supported in lists::contains()");
+                              "Nested types not supported in list search operations.");
   }
 
   {
@@ -573,7 +573,7 @@ TEST_F(ContainsTest, VectorTypeRelatedExceptions)
        {4, 5, 6}}}.release();
     auto skey = fixed_width_column_wrapper<int32_t>{0, 1, 2};
     CUDF_EXPECT_THROW_MESSAGE(lists::contains(list_of_lists->view(), skey),
-                              "Nested types not supported in lists::contains()");
+                              "Nested types not supported in list search operations.");
   }
 
   {
