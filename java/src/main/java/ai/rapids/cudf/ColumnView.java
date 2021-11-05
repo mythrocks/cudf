@@ -3122,6 +3122,11 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
     return new ColumnVector(listContainsColumn(getNativeView(), key.getNativeView()));
   }
 
+  public final ColumnVector listContainsNullElements() {
+    assert type.equals(DType.LIST) : "column type must be a LIST";
+    return new ColumnVector(listContainsNullElements(getNativeView()));
+  }
+
   /**
    * Segmented sort of the elements within a list in each row of a list column.
    * NOTICE: list columns with nested child are NOT supported yet.
@@ -3537,6 +3542,8 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
    * @return column handle of the resultant
    */
   private static native long listContainsColumn(long nativeView, long keyColumn);
+
+  private static native long listContainsNullElements(long nativeView);
 
   private static native long listSortRows(long nativeView, boolean isDescending, boolean isNullSmallest);
 
