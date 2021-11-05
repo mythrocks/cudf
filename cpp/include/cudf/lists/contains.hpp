@@ -74,6 +74,10 @@ std::unique_ptr<column> contains(
   cudf::column_view const& search_keys,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<column> contains_null_elements(
+  cudf::lists_column_view const& lists,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 /**
  * @brief Option to choose whether `index_of()` returns the first or last match
  * of a search key in a list row

@@ -326,6 +326,30 @@ TYPED_TEST(TypedContainsTest, ScalarKeysWithNullsInLists)
   }
 }
 
+TYPED_TEST(TypedContainsTest, TestContainsNulls)
+{
+  using T = TypeParam;
+
+  auto numerals = fixed_width_column_wrapper<T>{{x, 1, 2, x, 4, 5, x, 7, 8, x, x, 1, 2, x, 1},
+                                                nulls_at({0, 3, 6, 9, 10, 13})};
+  auto input_null_mask_iter = null_at(4);
+
+  auto search_space = make_lists_column(
+    8,
+    indices{0, 1, 3, 7, 7, 7, 10, 11, 15}.release(),
+    numerals.release(),
+    1,
+    cudf::test::detail::make_null_mask(input_null_mask_iter, input_null_mask_iter + 8));
+
+  // Search space: [ [x], [1,2], [x,4,5,x], [], x, [7,8,x], [x], [1,2,x,1] ]
+  {
+    // CONTAINS_NULLS.
+    auto result   = lists::contains_null_elements(search_space->view());
+    auto expected = bools{1, 0, 1, 0, 1, 1, 1, 1};
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
+  }
+}
+
 TEST_F(ContainsTest, BoolScalarWithNullsInLists)
 {
   using T = bool;
