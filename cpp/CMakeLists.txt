@@ -343,6 +343,7 @@ add_library(
   src/lists/interleave_columns.cu
   src/lists/lists_column_factories.cu
   src/lists/lists_column_view.cu
+  src/lists/map_view.cu
   src/lists/segmented_sort.cu
   src/merge/merge.cu
   src/partitioning/partitioning.cu

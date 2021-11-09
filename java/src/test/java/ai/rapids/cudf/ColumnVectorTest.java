@@ -5451,6 +5451,35 @@ public class ColumnVectorTest extends CudfTestBase {
   }
 
   @Test
+  void testGetMapKeyValueUnpack() {
+    List<HostColumnVector.StructData> list1 = Arrays.asList(new HostColumnVector.StructData("a", "b"));
+    List<HostColumnVector.StructData> list2 = Arrays.asList(new HostColumnVector.StructData("a", "c"));
+    List<HostColumnVector.StructData> list3 = Arrays.asList(new HostColumnVector.StructData("e", "d"));
+    List<HostColumnVector.StructData> list4 = Arrays.asList(new HostColumnVector.StructData("a", "g"));
+    List<HostColumnVector.StructData> list5 = Arrays.asList(new HostColumnVector.StructData("a", "null"));
+    HostColumnVector.StructType structType = new HostColumnVector.StructType(true, Arrays.asList(new HostColumnVector.BasicType(true, DType.STRING),
+            new HostColumnVector.BasicType(true, DType.STRING)));
+    try (ColumnVector cv = ColumnVector.fromLists(new HostColumnVector.ListType(true, structType), list1, list2, list3, list4, list5);
+         ColumnView keys = cv.getMapKeys();
+         ColumnView expectedKeys = ColumnVector.fromLists(new HostColumnVector.ListType(true, new BasicType(true, DType.STRING)), 
+                                                          Arrays.asList("a"), 
+                                                          Arrays.asList("a"), 
+                                                          Arrays.asList("e"), 
+                                                          Arrays.asList("a"), 
+                                                          Arrays.asList("a"));
+         ColumnView values = cv.getMapValues();
+         ColumnView expectedValues = ColumnVector.fromLists(new HostColumnVector.ListType(true, new BasicType(true, DType.STRING)), 
+                                                            Arrays.asList("b"), 
+                                                            Arrays.asList("c"), 
+                                                            Arrays.asList("d"), 
+                                                            Arrays.asList("g"), 
+                                                            Arrays.asList("null"))) {
+      assertColumnsAreEqual(expectedKeys, keys);
+      assertColumnsAreEqual(expectedValues, values);
+    }
+  }
+
+  @Test
   void testGetMapKeyExistence() {
     List<HostColumnVector.StructData> list1 = Arrays.asList(new HostColumnVector.StructData("a", "b"));
     List<HostColumnVector.StructData> list2 = Arrays.asList(new HostColumnVector.StructData("a", "c"));

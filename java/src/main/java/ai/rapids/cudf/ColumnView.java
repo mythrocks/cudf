@@ -3013,6 +3013,22 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
     return new ColumnVector(mapContains(getNativeView(), key.getScalarHandle()));
   }
 
+  public final ColumnView getMapKeys() {
+    assert type.equals(DType.LIST) : "column type must be a LIST";
+    ColumnView child = getChildColumnView(0);
+    assert child.getType().equals(DType.STRUCT) : "Child column must be a struct";
+    assert child.getChildColumnViews().length == 2 : "Child column must have 2 children";
+    return new ColumnView(mapKeys(getNativeView()));
+  }
+
+  public final ColumnView getMapValues() {
+    assert type.equals(DType.LIST) : "column type must be a LIST";
+    ColumnView child = getChildColumnView(0);
+    assert child.getType().equals(DType.STRUCT) : "Child column must be a struct";
+    assert child.getChildColumnViews().length == 2 : "Child column must have 2 children";
+    return new ColumnView(mapValues(getNativeView()));
+  }
+
   /**
    * Create a new struct column view of existing column views. Note that this will NOT copy
    * the contents of the input columns to make a new vector, but makes a view that must not
@@ -3508,6 +3524,10 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
    * @throws CudfException
    */
   private static native long mapContains(long columnView, long key) throws CudfException;
+
+  private static native long mapKeys(long columnView) throws CudfException;
+  private static native long mapValues(long columnView) throws CudfException;
+
   /**
    * Native method to add zeros as padding to the left of each string.
    */

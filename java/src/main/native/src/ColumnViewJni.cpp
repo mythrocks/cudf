@@ -29,6 +29,7 @@
 #include <cudf/lists/drop_list_duplicates.hpp>
 #include <cudf/lists/extract.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/lists/map_view.hpp>
 #include <cudf/lists/sorting.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/quantiles.hpp>
@@ -1277,7 +1278,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_mapLookup(JNIEnv *env, jc
     cudf::column_view *cv = reinterpret_cast<cudf::column_view *>(map_column_view);
     cudf::string_scalar *ss_key = reinterpret_cast<cudf::string_scalar *>(lookup_key);
 
-    std::unique_ptr<cudf::column> result = cudf::jni::map_lookup(*cv, *ss_key);
+    std::unique_ptr<cudf::column> result = cudf::maps_column_view{*cv}.get_values(*ss_key);// cudf::jni::map_lookup(*cv, *ss_key);
     return reinterpret_cast<jlong>(result.release());
   }
   CATCH_STD(env, 0);
@@ -1295,6 +1296,30 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_mapContains(JNIEnv *env, 
 
     std::unique_ptr<cudf::column> result = cudf::jni::map_contains(*cv, *ss_key);
     return reinterpret_cast<jlong>(result.release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_mapKeys(JNIEnv *env, jclass,
+                                                               jlong map_column_view) {
+  JNI_NULL_CHECK(env, map_column_view, "column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cv = reinterpret_cast<cudf::column_view *>(map_column_view);
+    auto result = cudf::maps_column_view{*cv}.all_keys();
+    return reinterpret_cast<jlong>(new cudf::column_view{result.parent()});
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_mapValues(JNIEnv *env, jclass,
+                                                                 jlong map_column_view) {
+  JNI_NULL_CHECK(env, map_column_view, "column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cv = reinterpret_cast<cudf::column_view *>(map_column_view);
+    auto result = cudf::maps_column_view{*cv}.all_values();
+    return reinterpret_cast<jlong>(new cudf::column_view{result.parent()});
   }
   CATCH_STD(env, 0);
 }
