@@ -276,6 +276,10 @@ ConfigureBench(JSON_BENCH string/json.cpp)
 # * io benchmark ---------------------------------------------------------------------
 ConfigureBench(MULTIBYTE_SPLIT_BENCHMARK io/text/multibyte_split.cpp)
 
+###################################################################################################
+# - row conversion benchmark ---------------------------------------------------------
+ConfigureBench(ROW_CONVERSION_BENCH row_conversion/row_conversion.cpp)
+
 add_custom_target(
   run_benchmarks
   DEPENDS CUDF_BENCHMARKS
