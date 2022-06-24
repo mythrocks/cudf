@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "cudf/types.hpp"
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/null_mask.hpp>
@@ -81,23 +82,27 @@ class rolling_exec {
     return *this;
   }
 
-  std::unique_ptr<column> test_grouped_nth_element(size_type n) const
+  std::unique_ptr<column> test_grouped_nth_element(
+    size_type n, null_policy null_handling = null_policy::INCLUDE) const
   {
-    return cudf::grouped_rolling_window(table_view{{_grouping}},
-                                        _input,
-                                        _preceding,
-                                        _following,
-                                        _min_periods,
-                                        *make_nth_element_aggregation<rolling_aggregation>(n));
+    return cudf::grouped_rolling_window(
+      table_view{{_grouping}},
+      _input,
+      _preceding,
+      _following,
+      _min_periods,
+      *make_nth_element_aggregation<rolling_aggregation>(n, null_handling));
   }
 
-  std::unique_ptr<column> test_nth_element(size_type n) const
+  std::unique_ptr<column> test_nth_element(size_type n,
+                                           null_policy null_handling = null_policy::INCLUDE) const
   {
-    return cudf::rolling_window(_input,
-                                _preceding,
-                                _following,
-                                _min_periods,
-                                *make_nth_element_aggregation<rolling_aggregation>(n));
+    return cudf::rolling_window(
+      _input,
+      _preceding,
+      _following,
+      _min_periods,
+      *make_nth_element_aggregation<rolling_aggregation>(n, null_handling));
   }
 };
 

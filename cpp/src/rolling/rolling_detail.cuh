@@ -972,14 +972,12 @@ class rolling_aggregation_postprocessor final : public cudf::detail::aggregation
   // Nth_ELEMENT aggregation.
   void visit(cudf::detail::nth_element_aggregation const& agg) override
   {
-    result = rolling::nth_element(agg._n,
-                                  agg._null_handling,
-                                  input,
-                                  preceding_window_begin,
-                                  following_window_begin,
-                                  min_periods,
-                                  stream,
-                                  mr);
+    result =
+      agg._null_handling == null_policy::EXCLUDE
+        ? rolling::nth_element<null_policy::EXCLUDE>(
+            agg._n, input, preceding_window_begin, following_window_begin, min_periods, stream, mr)
+        : rolling::nth_element<null_policy::INCLUDE>(
+            agg._n, input, preceding_window_begin, following_window_begin, min_periods, stream, mr);
   }
 
  private:
