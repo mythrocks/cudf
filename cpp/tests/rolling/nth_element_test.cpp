@@ -36,6 +36,7 @@
 
 #include <initializer_list>
 #include <memory>
+#include <optional>
 
 namespace cudf::test::rolling {
 
@@ -54,6 +55,7 @@ class rolling_exec {
   size_type _min_periods{1};
   column_view _grouping;
   column_view _input;
+  null_policy _null_handling = null_policy::INCLUDE;
 
  public:
   rolling_exec& preceding(size_type preceding)
@@ -81,28 +83,38 @@ class rolling_exec {
     _input = input;
     return *this;
   }
-
-  std::unique_ptr<column> test_grouped_nth_element(
-    size_type n, null_policy null_handling = null_policy::INCLUDE) const
+  rolling_exec& null_handling(null_policy null_handling)
   {
-    return cudf::grouped_rolling_window(
-      table_view{{_grouping}},
-      _input,
-      _preceding,
-      _following,
-      _min_periods,
-      *make_nth_element_aggregation<rolling_aggregation>(n, null_handling));
+    _null_handling = null_handling;
+    return *this;
   }
 
-  std::unique_ptr<column> test_nth_element(size_type n,
-                                           null_policy null_handling = null_policy::INCLUDE) const
+  std::unique_ptr<column> test_grouped_nth_element(
+    size_type n, std::optional<null_policy> null_handling = std::nullopt) const
   {
-    return cudf::rolling_window(
-      _input,
-      _preceding,
-      _following,
-      _min_periods,
-      *make_nth_element_aggregation<rolling_aggregation>(n, null_handling));
+    std::cout << "What's null_handling set to? "
+              << (null_handling.value_or(_null_handling) == null_policy::INCLUDE ? "INCLUDE."
+                                                                                 : "EXCLUDE.")
+              << std::endl;
+
+    return cudf::grouped_rolling_window(table_view{{_grouping}},
+                                        _input,
+                                        _preceding,
+                                        _following,
+                                        _min_periods,
+                                        *make_nth_element_aggregation<rolling_aggregation>(
+                                          n, null_handling.value_or(_null_handling)));
+  }
+
+  std::unique_ptr<column> test_nth_element(
+    size_type n, std::optional<null_policy> null_handling = std::nullopt) const
+  {
+    return cudf::rolling_window(_input,
+                                _preceding,
+                                _following,
+                                _min_periods,
+                                *make_nth_element_aggregation<rolling_aggregation>(
+                                  n, null_handling.value_or(_null_handling)));
   }
 };
 
@@ -181,6 +193,32 @@ TYPED_TEST(NthElementTypedTest, RollingWindow)
     auto const second_last_element = tester.test_nth_element(-2);
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
       *second_last_element, fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()});
+  }
+}
+
+TYPED_TEST(NthElementTypedTest, RollingWindowExcludeNulls)
+{
+  using T = TypeParam;
+
+  auto const input_col = fwcw<T>{{0, X, X, X, 4, X, 6, 7}, nulls_at({1, 2, 3, 5})};
+  auto tester          = rolling_exec{}.input(input_col);
+
+  {
+    // Window of 3 elements, min-periods == 1.
+    tester.preceding(2).following(1).min_periods(1).null_handling(null_policy::EXCLUDE);
+
+    auto const first_element = tester.test_nth_element(0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element,
+                                        fwcw<T>{{0, 0, X, 4, 4, 4, 6, 6}, null_at(2)});
+    auto const last_element = tester.test_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element,
+                                        fwcw<T>{{0, 0, X, 4, 4, 6, 7, 7}, null_at(2)});
+    auto const second_element = tester.test_nth_element(1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+      *second_element, fwcw<T>{{X, X, X, X, X, 6, 7, 7}, nulls_at({0, 1, 2, 3, 4})});
+    auto const second_last_element = tester.test_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+      *second_last_element, fwcw<T>{{X, X, X, X, X, 4, 6, 6}, nulls_at({0, 1, 2, 3, 4})});
   }
 }
 

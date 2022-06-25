@@ -20,6 +20,7 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/gather.cuh>
 #include <cudf/detail/iterator.cuh>
+#include <cudf/utilities/bit.hpp>
 
 #include <limits>
 #include <rmm/exec_policy.hpp>
@@ -74,13 +75,19 @@ std::unique_ptr<column> nth_element(size_type n,
                                     rmm::mr::device_memory_resource* mr)
 {
   auto const exclude_nulls = null_handling == null_policy::EXCLUDE and input.nullable();
+  /*
   auto d_input_ptr         = exclude_nulls ? column_device_view::create(input, stream)
                                            : std::unique_ptr<column_device_view>{nullptr};
+                                           */
 
   auto gather_iter = cudf::detail::make_counting_transform_iterator(
     0,
-    [exclude_nulls, preceding, following, min_periods, n, input_ptr = d_input_ptr.get()] __device__(
-      size_type i) {
+    [exclude_nulls,
+     preceding,
+     following,
+     min_periods,
+     n,
+     input_nullmask = input.null_mask()] __device__(size_type i) {
       // preceding[i] includes the current row.
       auto const window_size = preceding[i] + following[i];
       if (min_periods > window_size) { return NULL_INDEX; }
@@ -95,14 +102,13 @@ std::unique_ptr<column> nth_element(size_type n,
       if (not exclude_nulls) { return window_start + wrapped_n; }
 
       auto const window_end = window_start + window_size;
-      auto const is_valid   = cudf::detail::make_validity_iterator(*input_ptr);
       // Must exclude nulls, and n is in range [-window_size, window_size-1].
       // Depending on n<0, count forwards from window_start, or backwards from window_end.
       if (n >= 0) {
         auto count_down_valids = n;
         // Count forwards from window_start.
         for (auto j = window_start; j < window_end; ++j) {
-          if (is_valid[j]) {
+          if (cudf::bit_is_set(input_nullmask, j)) {
             if (count_down_valids == 0) {
               return j;
             } else {
@@ -116,7 +122,7 @@ std::unique_ptr<column> nth_element(size_type n,
           -n - 1;  // E.g. If n == -3, it is actually at index 2 from window_end.
         // Count backwards from window_end.
         for (auto j = window_end - 1; j >= window_start; --j) {
-          if (is_valid[j]) {
+          if (cudf::bit_is_set(input_nullmask, j)) {
             if (count_down_valids == 0) {
               return j;
             } else {
