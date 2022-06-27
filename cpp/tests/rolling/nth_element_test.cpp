@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#include "cudf/detail/iterator.cuh"
-#include "cudf/types.hpp"
-#include "thrust/execution_policy.h"
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/null_mask.hpp>
@@ -94,11 +91,6 @@ class rolling_exec {
   std::unique_ptr<column> test_grouped_nth_element(
     size_type n, std::optional<null_policy> null_handling = std::nullopt) const
   {
-    std::cout << "What's null_handling set to? "
-              << (null_handling.value_or(_null_handling) == null_policy::INCLUDE ? "INCLUDE."
-                                                                                 : "EXCLUDE.")
-              << std::endl;
-
     return cudf::grouped_rolling_window(table_view{{_grouping}},
                                         _input,
                                         _preceding,
@@ -140,7 +132,6 @@ TYPED_TEST(NthElementTypedTest, RollingWindow)
 
   auto const input_col = fwcw<T>{{0, 1, 2, 3, 4, X, 10, 11, 12, 13, 14, 15, 16, 20}, null_at(5)};
   auto tester          = rolling_exec{}.input(input_col);
-
   {
     // Window of 5 elements, min-periods == 1.
     tester.preceding(3).following(2).min_periods(1);
@@ -179,22 +170,18 @@ TYPED_TEST(NthElementTypedTest, RollingWindow)
       *second_last_element,
       fwcw<T>{{X, 1, 2, 3, 4, X, 10, 11, 12, 13, 14, 15, 16, X}, nulls_at({0, 5, 13})});
   }
-
   {
     // Too large values for `min_periods`. No window has enough periods.
     tester.preceding(2).following(1).min_periods(4);
-    auto const first_element = tester.test_nth_element(0);
-    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
-      *first_element, fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()});
+    auto const all_null_values = fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()};
+    auto const first_element   = tester.test_nth_element(0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element, all_null_values);
     auto const last_element = tester.test_nth_element(-1);
-    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
-      *last_element, fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element, all_null_values);
     auto const second_element = tester.test_nth_element(1);
-    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
-      *second_element, fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_element, all_null_values);
     auto const second_last_element = tester.test_nth_element(-2);
-    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
-      *second_last_element, fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element, all_null_values);
   }
 }
 
@@ -205,6 +192,23 @@ TYPED_TEST(NthElementTypedTest, RollingWindowExcludeNulls)
   auto const input_col = fwcw<T>{{0, X, X, X, 4, X, 6, 7}, nulls_at({1, 2, 3, 5})};
   auto tester          = rolling_exec{}.input(input_col);
 
+  {
+    // Window of 5 elements, min-periods == 2.
+    tester.preceding(3).following(2).min_periods(1).null_handling(null_policy::EXCLUDE);
+
+    auto const first_element = tester.test_nth_element(0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element,
+                                        fwcw<T>{{0, 0, 0, 4, 4, 4, 4, 6}, no_nulls()});
+    auto const last_element = tester.test_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element,
+                                        fwcw<T>{{0, 0, 4, 4, 6, 7, 7, 7}, no_nulls()});
+    auto const second_element = tester.test_nth_element(1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_element,
+                                        fwcw<T>{{X, X, 4, X, 6, 6, 6, 7}, nulls_at({0, 1, 3})});
+    auto const second_last_element = tester.test_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element,
+                                        fwcw<T>{{X, X, 0, X, 4, 6, 6, 6}, nulls_at({0, 1, 3})});
+  }
   {
     // Window of 3 elements, min-periods == 1.
     tester.preceding(2).following(1).min_periods(1).null_handling(null_policy::EXCLUDE);
@@ -221,6 +225,20 @@ TYPED_TEST(NthElementTypedTest, RollingWindowExcludeNulls)
     auto const second_last_element = tester.test_nth_element(-2);
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
       *second_last_element, fwcw<T>{{X, X, X, X, X, 4, 6, 6}, nulls_at({0, 1, 2, 3, 4})});
+  }
+  {
+    // Too large values for `min_periods`. No window has enough periods.
+    tester.preceding(2).following(1).min_periods(4);
+    auto const all_null_values = fwcw<T>{{X, X, X, X, X, X, X, X}, all_nulls()};
+
+    auto const first_element = tester.test_nth_element(0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element, all_null_values);
+    auto const last_element = tester.test_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element, all_null_values);
+    auto const second_element = tester.test_nth_element(1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_element, all_null_values);
+    auto const second_last_element = tester.test_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element, all_null_values);
   }
 }
 
@@ -274,9 +292,9 @@ TYPED_TEST(NthElementTypedTest, GroupedRollingWindow)
     auto const first_element = tester.test_grouped_nth_element(0);
     // clang-format off
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element,
-                                        fwcw<T>{{X, 0, 1, 2, 3, X, X,   // Group 0 
-                                                 10, 11, 12, 13, 14, X, // Group 10
-                                                 X},                    // Group 20
+                                        fwcw<T>{{X, 0, 1, 2, 3, X,         // Group 0 
+                                                 X, 10, 11, 12, 13, 14, X, // Group 10
+                                                 X},                       // Group 20
                                                 nulls_at({0, 5, 6, 12, 13})});
     auto const last_element = tester.test_grouped_nth_element(-1);
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element,
@@ -296,6 +314,107 @@ TYPED_TEST(NthElementTypedTest, GroupedRollingWindow)
                                                  X, 11, 12, 13, 14, 15, X, // Group 10
                                                  X},                       // Group 20               
                                                 nulls_at({0, 5, 6, 12, 13})});
+    // clang-format on
+  }
+  {
+    // Too large values for `min_periods`. No window has enough periods.
+    tester.preceding(2).following(1).min_periods(4);
+    auto const all_null_values = fwcw<T>{{X, X, X, X, X, X, X, X, X, X, X, X, X, X}, all_nulls()};
+
+    auto const first_element = tester.test_grouped_nth_element(0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element, all_null_values);
+    auto const last_element = tester.test_grouped_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element, all_null_values);
+    auto const second_element = tester.test_grouped_nth_element(1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_element, all_null_values);
+    auto const second_last_element = tester.test_grouped_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element, all_null_values);
+  }
+}
+
+TYPED_TEST(NthElementTypedTest, GroupedRollingWindowExcludeNulls)
+{
+  using T = TypeParam;
+
+  // clang-format off
+  auto const group_col = fwcw<int32_t>{0, 0, 0, 0, 0, 0,
+                                       10, 10, 10, 10, 10, 10, 10,
+                                       20,
+                                       30};
+  auto const input_col = fwcw<T> {{0, 1, X, 3, X, 5,         // Group 0 
+                                   10, X, X, 13, 14, 15, 16, // Group 10
+                                   20,                       // Group 20
+                                   X},                       // Group 30
+                                  nulls_at({2, 4, 7, 8, 14})};
+  // clang-format on
+  auto tester = rolling_exec{}.grouping(group_col).input(input_col);
+
+  {
+    // Window of 5 elements, min-periods == 1.
+    tester.preceding(3).following(2).min_periods(1).null_handling(null_policy::EXCLUDE);
+    auto const first_element = tester.test_grouped_nth_element(0);
+    // clang-format off
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element,
+                                        fwcw<T>{{0, 0, 0, 1, 3, 3,           // Group 0
+                                                 10, 10, 10, 13, 13, 13, 14, // Group 10
+                                                 20,                         // Group 20
+                                                 X},                         // Group 30
+                                                null_at(14)});
+    auto const last_element = tester.test_grouped_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element, 
+                                        fwcw<T>{{1, 3, 3, 5, 5, 5,           // Group 0 
+                                                 10, 13, 14, 15, 16, 16, 16, // Group 10
+                                                 20,                         // Group 20 
+                                                 X},                         // Group 30 
+                                                null_at(14)});
+    auto const third_element = tester.test_grouped_nth_element(2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*third_element, 
+                                        fwcw<T>{{X, 3, 3, 5, X, X,          // Group 0
+                                                 X, X, 14, 15, 15, 15, 16,  // Group 10
+                                                 X,                         // Group 20 
+                                                 X},                        // Group 30                     
+                                                nulls_at({0, 4, 5, 6, 7, 13, 14})});
+    auto const second_last_element = tester.test_grouped_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element,
+                                        fwcw<T>{{0, 1, 1, 3, 3, 3,          // Group 0
+                                                 X, 10, 13, 14, 15, 15, 15, // Group 10
+                                                 X,                         // Group 20
+                                                 X},                        // Group 30                     
+                                                nulls_at({6, 13, 14})});
+    // clang-format on
+  }
+  {
+    // Window of 3 elements, min-periods == 3. Expect null elements at group margins.
+    tester.preceding(2).following(1).min_periods(3);
+    auto const first_element = tester.test_grouped_nth_element(0);
+    // clang-format off
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*first_element,
+                                        fwcw<T>{{X, 0, 1, 3, 3, X,         // Group 0 
+                                                 X, 10, 13, 13, 13, 14, X, // Group 10
+                                                 X,                        // Group 20
+                                                 X},                       // Group 30
+                                                nulls_at({0, 5, 6, 12, 13, 14})});
+    auto const last_element = tester.test_grouped_nth_element(-1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*last_element,
+                                        fwcw<T>{{X, 1, 3, 3, 5, X,         // Group 0 
+                                                 X, 10, 13, 14, 15, 16, X, // Group 10
+                                                 X,                        // Group 20 
+                                                 X},                       // Group 30
+                                                nulls_at({0, 5, 6, 12, 13, 14})});
+    auto const second_element = tester.test_grouped_nth_element(1);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_element,
+                                        fwcw<T>{{X, 1, 3, X, 5, X,       // Group 0 
+                                                 X, X, X, 14, 14, 15, X, // Group 10
+                                                 X,                      // Group 20 
+                                                 X},                     // Group 30
+                                                nulls_at({0, 3, 5, 6, 7, 8, 12, 13, 14})});
+    auto const second_last_element = tester.test_grouped_nth_element(-2);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*second_last_element,
+                                        fwcw<T>{{X, 0, 1, X, 3, X,       // Group 0
+                                                 X, X, X, 13, 14, 15, X, // Group 10
+                                                 X,                      // Group 20               
+                                                 X},                     // Group 30
+                                                nulls_at({0, 3, 5, 6, 7, 8, 12, 13, 14})});
     // clang-format on
   }
   {
