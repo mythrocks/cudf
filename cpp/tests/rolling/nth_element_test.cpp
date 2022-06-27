@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+#include "cudf/detail/iterator.cuh"
 #include "cudf/types.hpp"
+#include "thrust/execution_policy.h"
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/null_mask.hpp>
