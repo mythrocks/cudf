@@ -38,11 +38,9 @@ std::unique_ptr<column> nth_element(size_type n,
                                     rmm::cuda_stream_view stream,
                                     rmm::mr::device_memory_resource* mr)
 {
-  auto const exclude_nulls = null_handling == null_policy::EXCLUDE and input.nullable();
-
   auto gather_iter = cudf::detail::make_counting_transform_iterator(
     0,
-    [exclude_nulls,
+    [exclude_nulls = null_handling == null_policy::EXCLUDE and input.nullable(),
      preceding,
      following,
      min_periods,
