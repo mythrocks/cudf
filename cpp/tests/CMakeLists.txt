@@ -82,6 +82,7 @@ ConfigureTest(
   groupby/count_tests.cpp
   groupby/covariance_tests.cpp
   groupby/groups_tests.cpp
+  groupby/hash_nth_element_tests.cpp
   groupby/keys_tests.cpp
   groupby/lists_tests.cu
   groupby/m2_tests.cpp

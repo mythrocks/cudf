@@ -25,6 +25,7 @@
 #include <cudf/table/table_device_view.cuh>
 #include <cudf/utilities/traits.cuh>
 
+#include <limits>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
@@ -432,6 +433,37 @@ struct update_target_element<
     // It is assumed the output for COUNT_ALL is initialized to be all valid
   }
 };
+
+/* CALEB: Implement NTH_ELEMENT here.
+template <typename Source, bool target_has_nulls, bool source_has_nulls>
+struct update_target_element<
+  Source,
+  aggregation::NTH_ELEMENT,
+  target_has_nulls,
+  source_has_nulls,
+  std::enable_if_t<is_valid_aggregation<Source, aggregation::NTH_ELEMENT>()> // No need for SFINAE here. NTH_ELEMENT can agg any source.
+                   > {
+  __device__ void operator()(mutable_column_device_view target,
+                             size_type target_index,
+                             column_device_view source,
+                             size_type source_index) const noexcept
+  {
+    if (source_has_nulls and source.is_null(source_index)) { return; }
+
+    using Target = offset_type; // Building a gather map.
+    auto old     = atomicCAS(&target.element<Target>(target_index), 
+                                   cuda::std::numeric_limits<Target>::max(),
+                                   source_index);
+    if (old != ARGMAX_SENTINEL) {
+      while (source.element<Source>(source_index) > source.element<Source>(old)) {
+        old = atomicCAS(&target.element<Target>(target_index), old, source_index);
+      }
+    }
+
+    if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
+  }
+};
+*/
 
 template <typename Source, bool target_has_nulls, bool source_has_nulls>
 struct update_target_element<
