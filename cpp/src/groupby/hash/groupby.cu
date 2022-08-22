@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include "cudf/filling.hpp"
-#include "thrust/fill.h"
 #include <groupby/common/utils.hpp>
 #include <groupby/hash/groupby_kernels.cuh>
 
@@ -133,71 +131,102 @@ bool is_hash_aggregation(aggregation const& agg)
 class groupby_simple_aggregations_collector final
   : public cudf::detail::simple_aggregations_collector {
  public:
+
+  groupby_simple_aggregations_collector(column_view original_agg_column, rmm::cuda_stream_view stream)
+    : original_agg_column{original_agg_column},
+      stream{stream}
+  {}
+
   using cudf::detail::simple_aggregations_collector::visit;
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::min_aggregation const&) override
   {
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(col_type.id() == type_id::STRING ? make_argmin_aggregation()
-                                                    : make_min_aggregation());
-    return aggs;
+    aggs_and_column_views.push_back(std::make_pair(col_type.id() == type_id::STRING ? make_argmin_aggregation() : make_min_aggregation(), 
+                                                   original_agg_column));
+    return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::max_aggregation const&) override
   {
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(col_type.id() == type_id::STRING ? make_argmax_aggregation()
-                                                    : make_max_aggregation());
-    return aggs;
+    aggs_and_column_views.push_back(std::make_pair(col_type.id() == type_id::STRING ? make_argmax_aggregation() : make_max_aggregation(), 
+                                                   original_agg_column));
+    return {};
   }
 
-  std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
+  std::vector<std::unique_ptr<aggregation>> visit([[maybe_unused]] data_type col_type,
                                                   cudf::detail::mean_aggregation const&) override
   {
-    (void)col_type;
     CUDF_EXPECTS(is_fixed_width(col_type), "MEAN aggregation expects fixed width type");
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(make_sum_aggregation());
-    // COUNT_VALID
-    aggs.push_back(make_count_aggregation());
-
-    return aggs;
+    aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
+    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type,
                                                   cudf::detail::var_aggregation const&) override
   {
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(make_sum_aggregation());
-    // COUNT_VALID
-    aggs.push_back(make_count_aggregation());
-
-    return aggs;
+   aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
+   aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+   return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type,
                                                   cudf::detail::std_aggregation const&) override
   {
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(make_sum_aggregation());
-    // COUNT_VALID
-    aggs.push_back(make_count_aggregation());
-
-    return aggs;
+    aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
+    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(
     data_type, cudf::detail::correlation_aggregation const&) override
   {
-    std::vector<std::unique_ptr<aggregation>> aggs;
-    aggs.push_back(make_sum_aggregation());
-    // COUNT_VALID
-    aggs.push_back(make_count_aggregation());
-
-    return aggs;
+    aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
+    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    return {};
   }
+
+  std::vector<std::unique_ptr<aggregation>> visit(
+    data_type, cudf::detail::nth_element_aggregation const&) override
+  {
+    // TODO: Use null mask for skip nulls. Use MAX for LAST. Assuming MIN for FIRST, for now.
+    auto source_index_column = make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
+                                                       original_agg_column.size(),
+                                                       mask_state::UNALLOCATED, stream);
+    thrust::copy(rmm::exec_policy(stream),
+                 thrust::make_counting_iterator<offset_type>(0),
+                 thrust::make_counting_iterator<offset_type>(original_agg_column.size()),
+                 source_index_column->mutable_view().begin<offset_type>());
+    aggs_and_column_views.push_back(std::make_pair(make_min_aggregation(), source_index_column->view()));
+    additional_columns.push_back(std::move(source_index_column));
+    return {};
+  }
+
+  auto& get_aggs_and_column_views()
+  {
+    return aggs_and_column_views;
+  }
+  
+  auto& get_additional_columns()
+  {
+    return additional_columns;
+  }
+  
+  auto get_original_agg_column()
+  {
+    return original_agg_column;
+  }
+
+  private:
+
+  using agg_column_view_pair = std::pair<std::unique_ptr<aggregation>, column_view>;
+
+  column_view original_agg_column; // The original column view to which the aggregation is applied by default.
+  rmm::cuda_stream_view stream;
+  std::vector<agg_column_view_pair> aggs_and_column_views;
+  std::vector<std::unique_ptr<column>> additional_columns;
 };
 
 class hash_compound_agg_finalizer final : public cudf::detail::aggregation_finalizer {
@@ -382,29 +411,34 @@ struct flattened_single_pass_aggs
   table_view agg_columns;
   std::vector<aggregation::Kind> agg_kinds;
   // Etc.
+  // TODO: Also add method to absorb contents of collector.
 };
 
 // flatten aggs to filter in single pass aggs
-std::tuple<table_view, 
-           std::vector<aggregation::Kind>, 
-           std::vector<std::unique_ptr<aggregation>>,
-           std::unique_ptr<column>>
+std::tuple<table_view, ///< Original Aggregation Columns 
+           table_view, ///< (Possibly) Substituted Aggregation Columns
+           std::vector<aggregation::Kind>,            ///< Simple Aggregation Kinds
+           std::vector<std::unique_ptr<aggregation>>, ///< Simple Aggregations
+           std::vector<std::unique_ptr<column>>>      ///< Additional columns
 flatten_single_pass_aggs(host_span<aggregation_request const> requests, rmm::cuda_stream_view stream)
 {
-  std::vector<column_view> columns;
+  std::vector<column_view> original_columns, substituted_columns;
   std::vector<std::unique_ptr<aggregation>> aggs;
   std::vector<aggregation::Kind> agg_kinds;
-  std::unique_ptr<column> temp_idx_column{nullptr}; 
+  std::vector<std::unique_ptr<column>> additional_columns;
 
   for (auto const& request : requests) {
     auto const& agg_v = request.aggregations;
 
     std::unordered_set<aggregation::Kind> agg_kinds_set;
-    auto insert_agg = [&](column_view const& request_values, std::unique_ptr<aggregation>&& agg) {
+    auto insert_agg = [&](std::unique_ptr<aggregation>&& agg,
+                          column_view const& original_agg_column,
+                          column_view const& substituted_agg_column) {
       if (agg_kinds_set.insert(agg->kind).second) {
         agg_kinds.push_back(agg->kind);
         aggs.push_back(std::move(agg));
-        columns.push_back(request_values);
+        original_columns.push_back(original_agg_column);
+        substituted_columns.push_back(substituted_agg_column);
       }
     };
 
@@ -412,34 +446,26 @@ flatten_single_pass_aggs(host_span<aggregation_request const> requests, rmm::cud
                          ? cudf::dictionary_column_view(request.values).keys().type()
                          : request.values.type();
     for (auto&& agg : agg_v) {
-      groupby_simple_aggregations_collector collector;
-      if (agg->kind == aggregation::NTH_ELEMENT) { 
-        std::cout << "CALEB: NTH_ELEMENT being flattened!" << std::endl;
-        if (temp_idx_column.get() == nullptr) {
-          temp_idx_column = std::move(make_fixed_width_column(cudf::data_type{cudf::type_id::INT32}, 
-                                                              request.values.size(), 
-                                                              mask_state::UNALLOCATED, 
-                                                              stream)
-            // TODO: CALEB: Adopt request.values nullmask, if nth_element(skipNulls).
-          );
-          thrust::copy(rmm::exec_policy(stream),
-                      thrust::make_counting_iterator<offset_type>(0),
-                      thrust::make_counting_iterator<offset_type>(request.values.size()),
-                      temp_idx_column->mutable_view().begin<offset_type>());
-        }
-        insert_agg(temp_idx_column->view(), cudf::make_min_aggregation()); // TODO: CALEB: Max agg for LAST.
-      }
-      else {
-        std::cout << "CALEB: Flattening something else: " 
-          << static_cast<int32_t>(agg->kind) << std::endl;
-        for (auto& agg_s : agg->get_simple_aggregations(values_type, collector)) {
-          insert_agg(request.values, std::move(agg_s));
-        }
+      groupby_simple_aggregations_collector collector{request.values, stream};
+      agg->get_simple_aggregations(values_type, collector);
+      auto& collector_additional_columns = collector.get_additional_columns();
+      std::copy(std::make_move_iterator(collector_additional_columns.begin()),
+                std::make_move_iterator(collector_additional_columns.end()),
+                std::back_inserter(additional_columns));
+      for (auto&& agg_column_pair: collector.get_aggs_and_column_views())
+      {
+        insert_agg(std::move(agg_column_pair.first),
+                   collector.get_original_agg_column(), 
+                   agg_column_pair.second);
       }
     }
   }
 
-  return std::make_tuple(table_view(columns), std::move(agg_kinds), std::move(aggs), std::move(temp_idx_column));
+  return std::make_tuple(table_view(original_columns), 
+                         table_view(substituted_columns), 
+                         std::move(agg_kinds), 
+                         std::move(aggs), 
+                         std::move(additional_columns));
 }
 
 /**
@@ -477,27 +503,6 @@ void sparse_to_dense_results(table_view const& keys,
     }
   }
 }
-
-/*
-auto make_sparse_results_column(data_type col_type, 
-                                aggregation::Kind agg_kind, 
-                                size_type size, 
-                                mask_state mask_flag, 
-                                rmm::cuda_stream_view stream)
-{
-  if (agg_kind == aggregation::NTH_ELEMENT) {
-    auto ret = make_fixed_width_column(data_type{type_id::INT32}, // gather_map_t.
-                                             size,
-                                             mask_flag,
-                                             stream); 
-    thrust::fill_n(rmm::exec_policy(stream), ret->mutable_view().begin<size_type>(), size, cuda::std::numeric_limits<size_type>::max());
-    return ret;
-  }
-  else {
-    return make_fixed_width_column(cudf::detail::target_type(col_type, agg_kind), size, mask_flag, stream);
-  }
-}
-*/
 
 // make table that will hold sparse results
 auto create_sparse_results_table(table_view const& flattened_values,
@@ -545,8 +550,10 @@ void compute_single_pass_aggs(table_view const& keys,
                               rmm::cuda_stream_view stream)
 {
   // flatten the aggs to a table that can be operated on by aggregate_row
-  auto const [flattened_values, agg_kinds, aggs, temp_col] = flatten_single_pass_aggs(requests, stream);
-  (void)temp_col;
+  auto const [flattened_original_cols, 
+              flattened_values, 
+              agg_kinds, aggs, additional_cols] = flatten_single_pass_aggs(requests, stream);
+  (void)additional_cols;
   // make table that will hold sparse results
   table sparse_table = create_sparse_results_table(flattened_values, agg_kinds, stream);
   // prepare to launch kernel to do the actual aggregation
@@ -574,7 +581,7 @@ void compute_single_pass_aggs(table_view const& keys,
   for (size_t i = 0; i < aggs.size(); i++) {
     // Note that the cache will make a copy of this temporary aggregation
     sparse_results->add_result(
-      flattened_values.column(i), *aggs[i], std::move(sparse_result_cols[i]));
+      flattened_original_cols.column(i), *aggs[i], std::move(sparse_result_cols[i]));
     // TODO: The problem is here:
     //   1. `NTH_ELEMENT` requires `MIN` aggregation on a generated source index.
     //   2. `MIN` has results cached against the source index column view, not the original column view.
