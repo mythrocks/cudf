@@ -140,7 +140,7 @@ class groupby_simple_aggregations_collector final
 
   using cudf::detail::simple_aggregations_collector::visit;
 
-  // Default case.
+  // Default aggregation collection.
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   aggregation const& agg) override
   {
@@ -148,7 +148,7 @@ class groupby_simple_aggregations_collector final
     return {};
   }
 
-  // Aggregation-specific cases.
+  // Aggregation-specific collection.
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::min_aggregation const&) override
   {
@@ -411,18 +411,18 @@ class hash_compound_agg_finalizer final : public cudf::detail::aggregation_final
     this->visit(*min_max_agg);
 
     auto const min_max_result = dense_results->get_result(col, *min_max_agg);
-    auto const nullify_index = cudf::numeric_scalar<offset_type>{
-      std::numeric_limits<offset_type>::min(), true, stream};
+    auto const nullify_index =
+      cudf::numeric_scalar<offset_type>{std::numeric_limits<offset_type>::min(), true, stream};
 
     auto const gather_map = cudf::detail::replace_nulls(min_max_result, nullify_index, stream);
 
-    auto nth_element_result =
-      cudf::detail::gather(table_view({col}),
-                           *gather_map,
-                           cudf::out_of_bounds_policy::NULLIFY,
-                           cudf::detail::negative_index_policy::NOT_ALLOWED,
-                           stream,
-                           mr)->release();
+    auto nth_element_result = cudf::detail::gather(table_view({col}),
+                                                   *gather_map,
+                                                   cudf::out_of_bounds_policy::NULLIFY,
+                                                   cudf::detail::negative_index_policy::NOT_ALLOWED,
+                                                   stream,
+                                                   mr)
+                                ->release();
 
     dense_results->add_result(col, agg, std::move(nth_element_result.front()));
   }

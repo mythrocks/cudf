@@ -45,7 +45,7 @@ TEST_F(HashGroupByNthElementTest, Nth)
   std::cout << "CALEB: Testing HashGroupByNthElementTest!" << std::endl;
   std::cout << "Nuther print." << std::endl;
 
-  auto const grouping_keys = ints{ 0,  0,  0,  0,  1,  1,  1,  1};
+  auto const grouping_keys = ints{0, 0, 0, 0, 1, 1, 1, 1};
   auto const agg_values    = ints{10, 20, 30, 40, 50, 60, 70, 80};
 
   auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
