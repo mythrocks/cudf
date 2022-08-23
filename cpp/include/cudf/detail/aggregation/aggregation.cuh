@@ -441,8 +441,8 @@ struct update_target_element<
   aggregation::NTH_ELEMENT,
   target_has_nulls,
   source_has_nulls,
-  std::enable_if_t<is_valid_aggregation<Source, aggregation::NTH_ELEMENT>()> // No need for SFINAE here. NTH_ELEMENT can agg any source.
-                   > {
+  std::enable_if_t<is_valid_aggregation<Source, aggregation::NTH_ELEMENT>()> // No need for SFINAE
+here. NTH_ELEMENT can agg any source. > {
   __device__ void operator()(mutable_column_device_view target,
                              size_type target_index,
                              column_device_view source,
@@ -451,7 +451,7 @@ struct update_target_element<
     if (source_has_nulls and source.is_null(source_index)) { return; }
 
     using Target = offset_type; // Building a gather map.
-    auto old     = atomicCAS(&target.element<Target>(target_index), 
+    auto old     = atomicCAS(&target.element<Target>(target_index),
                                    cuda::std::numeric_limits<Target>::max(),
                                    source_index);
     if (old != ARGMAX_SENTINEL) {

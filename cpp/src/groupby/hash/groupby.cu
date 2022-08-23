@@ -37,6 +37,7 @@
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/scalar/scalar.hpp>
+#include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_device_view.cuh>
@@ -123,7 +124,7 @@ bool is_hash_aggregation(aggregation const& agg)
 {
   if (agg.kind == aggregation::NTH_ELEMENT) {
     auto const& n = dynamic_cast<cudf::detail::nth_element_aggregation const&>(agg)._n;
-    return n == 0 || n == -1; // Only `FIRST` and `LAST` are supported for now.
+    return n == 0 || n == -1;  // Only `FIRST` and `LAST` are supported for now.
   }
   return is_hash_aggregation(agg.kind);
 }
@@ -131,27 +132,29 @@ bool is_hash_aggregation(aggregation const& agg)
 class groupby_simple_aggregations_collector final
   : public cudf::detail::simple_aggregations_collector {
  public:
-
-  groupby_simple_aggregations_collector(column_view original_agg_column, rmm::cuda_stream_view stream)
-    : original_agg_column{original_agg_column},
-      stream{stream}
-  {}
+  groupby_simple_aggregations_collector(column_view original_agg_column,
+                                        rmm::cuda_stream_view stream)
+    : original_agg_column{original_agg_column}, stream{stream}
+  {
+  }
 
   using cudf::detail::simple_aggregations_collector::visit;
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::min_aggregation const&) override
   {
-    aggs_and_column_views.push_back(std::make_pair(col_type.id() == type_id::STRING ? make_argmin_aggregation() : make_min_aggregation(), 
-                                                   original_agg_column));
+    aggs_and_column_views.push_back(std::make_pair(
+      col_type.id() == type_id::STRING ? make_argmin_aggregation() : make_min_aggregation(),
+      original_agg_column));
     return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::max_aggregation const&) override
   {
-    aggs_and_column_views.push_back(std::make_pair(col_type.id() == type_id::STRING ? make_argmax_aggregation() : make_max_aggregation(), 
-                                                   original_agg_column));
+    aggs_and_column_views.push_back(std::make_pair(
+      col_type.id() == type_id::STRING ? make_argmax_aggregation() : make_max_aggregation(),
+      original_agg_column));
     return {};
   }
 
@@ -160,23 +163,26 @@ class groupby_simple_aggregations_collector final
   {
     CUDF_EXPECTS(is_fixed_width(col_type), "MEAN aggregation expects fixed width type");
     aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
-    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    aggs_and_column_views.push_back(
+      std::make_pair(make_count_aggregation(), original_agg_column));  // COUNT_VALID
     return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type,
                                                   cudf::detail::var_aggregation const&) override
   {
-   aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
-   aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
-   return {};
+    aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
+    aggs_and_column_views.push_back(
+      std::make_pair(make_count_aggregation(), original_agg_column));  // COUNT_VALID
+    return {};
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(data_type,
                                                   cudf::detail::std_aggregation const&) override
   {
     aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
-    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    aggs_and_column_views.push_back(
+      std::make_pair(make_count_aggregation(), original_agg_column));  // COUNT_VALID
     return {};
   }
 
@@ -184,7 +190,8 @@ class groupby_simple_aggregations_collector final
     data_type, cudf::detail::correlation_aggregation const&) override
   {
     aggs_and_column_views.push_back(std::make_pair(make_sum_aggregation(), original_agg_column));
-    aggs_and_column_views.push_back(std::make_pair(make_count_aggregation(), original_agg_column)); // COUNT_VALID
+    aggs_and_column_views.push_back(
+      std::make_pair(make_count_aggregation(), original_agg_column));  // COUNT_VALID
     return {};
   }
 
@@ -194,36 +201,29 @@ class groupby_simple_aggregations_collector final
     // TODO: Use null mask for skip nulls. Use MAX for LAST. Assuming MIN for FIRST, for now.
     auto source_index_column = make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                                        original_agg_column.size(),
-                                                       mask_state::UNALLOCATED, stream);
+                                                       mask_state::UNALLOCATED,
+                                                       stream);
     thrust::copy(rmm::exec_policy(stream),
                  thrust::make_counting_iterator<offset_type>(0),
                  thrust::make_counting_iterator<offset_type>(original_agg_column.size()),
                  source_index_column->mutable_view().begin<offset_type>());
-    aggs_and_column_views.push_back(std::make_pair(make_min_aggregation(), source_index_column->view()));
+    aggs_and_column_views.push_back(
+      std::make_pair(make_min_aggregation(), source_index_column->view()));
     additional_columns.push_back(std::move(source_index_column));
     return {};
   }
 
-  auto& get_aggs_and_column_views()
-  {
-    return aggs_and_column_views;
-  }
-  
-  auto& get_additional_columns()
-  {
-    return additional_columns;
-  }
-  
-  auto get_original_agg_column()
-  {
-    return original_agg_column;
-  }
+  auto& get_aggs_and_column_views() { return aggs_and_column_views; }
 
-  private:
+  auto& get_additional_columns() { return additional_columns; }
 
+  auto get_original_agg_column() { return original_agg_column; }
+
+ private:
   using agg_column_view_pair = std::pair<std::unique_ptr<aggregation>, column_view>;
 
-  column_view original_agg_column; // The original column view to which the aggregation is applied by default.
+  column_view original_agg_column;  // The original column view to which the aggregation is applied
+                                    // by default.
   rmm::cuda_stream_view stream;
   std::vector<agg_column_view_pair> aggs_and_column_views;
   std::vector<std::unique_ptr<column>> additional_columns;
@@ -398,16 +398,28 @@ class hash_compound_agg_finalizer final : public cudf::detail::aggregation_final
     if (dense_results->has_result(col, agg)) return;
     // TODO: CALEB: Might need to do min or max, depending on FIRST vs LAST. Assume FIRST for now.
 
-    auto const min_agg = make_min_aggregation();
-    this->visit(*min_agg);
-    dense_results->add_result(col, agg, 
-      std::make_unique<column>(dense_results->get_result(col, *min_agg), stream, mr));
-  }
+    auto const min_max_agg = agg._n == 0 ? make_min_aggregation() : make_max_aggregation();
+    this->visit(*min_max_agg);
 
+    auto const min_max_result = dense_results->get_result(col, *min_max_agg);
+    auto const nullify_index = cudf::numeric_scalar<offset_type>{
+      std::numeric_limits<offset_type>::min(), true, stream};
+
+    auto const gather_map = cudf::detail::replace_nulls(min_max_result, nullify_index, stream);
+
+    auto nth_element_result =
+      cudf::detail::gather(table_view({col}),
+                           *gather_map,
+                           cudf::out_of_bounds_policy::NULLIFY,
+                           cudf::detail::negative_index_policy::NOT_ALLOWED,
+                           stream,
+                           mr)->release();
+
+    dense_results->add_result(col, agg, std::move(nth_element_result.front()));
+  }
 };
 
-struct flattened_single_pass_aggs 
-{
+struct flattened_single_pass_aggs {
   table_view agg_columns;
   std::vector<aggregation::Kind> agg_kinds;
   // Etc.
@@ -415,12 +427,13 @@ struct flattened_single_pass_aggs
 };
 
 // flatten aggs to filter in single pass aggs
-std::tuple<table_view, ///< Original Aggregation Columns 
-           table_view, ///< (Possibly) Substituted Aggregation Columns
-           std::vector<aggregation::Kind>,            ///< Simple Aggregation Kinds
-           std::vector<std::unique_ptr<aggregation>>, ///< Simple Aggregations
-           std::vector<std::unique_ptr<column>>>      ///< Additional columns
-flatten_single_pass_aggs(host_span<aggregation_request const> requests, rmm::cuda_stream_view stream)
+std::tuple<table_view,                      ///< Original Aggregation Columns
+           table_view,                      ///< (Possibly) Substituted Aggregation Columns
+           std::vector<aggregation::Kind>,  ///< Simple Aggregation Kinds
+           std::vector<std::unique_ptr<aggregation>>,  ///< Simple Aggregations
+           std::vector<std::unique_ptr<column>>>       ///< Additional columns
+flatten_single_pass_aggs(host_span<aggregation_request const> requests,
+                         rmm::cuda_stream_view stream)
 {
   std::vector<column_view> original_columns, substituted_columns;
   std::vector<std::unique_ptr<aggregation>> aggs;
@@ -452,19 +465,18 @@ flatten_single_pass_aggs(host_span<aggregation_request const> requests, rmm::cud
       std::copy(std::make_move_iterator(collector_additional_columns.begin()),
                 std::make_move_iterator(collector_additional_columns.end()),
                 std::back_inserter(additional_columns));
-      for (auto&& agg_column_pair: collector.get_aggs_and_column_views())
-      {
+      for (auto&& agg_column_pair : collector.get_aggs_and_column_views()) {
         insert_agg(std::move(agg_column_pair.first),
-                   collector.get_original_agg_column(), 
+                   collector.get_original_agg_column(),
                    agg_column_pair.second);
       }
     }
   }
 
-  return std::make_tuple(table_view(original_columns), 
-                         table_view(substituted_columns), 
-                         std::move(agg_kinds), 
-                         std::move(aggs), 
+  return std::make_tuple(table_view(original_columns),
+                         table_view(substituted_columns),
+                         std::move(agg_kinds),
+                         std::move(aggs),
                          std::move(additional_columns));
 }
 
@@ -550,9 +562,8 @@ void compute_single_pass_aggs(table_view const& keys,
                               rmm::cuda_stream_view stream)
 {
   // flatten the aggs to a table that can be operated on by aggregate_row
-  auto const [flattened_original_cols, 
-              flattened_values, 
-              agg_kinds, aggs, additional_cols] = flatten_single_pass_aggs(requests, stream);
+  auto const [flattened_original_cols, flattened_values, agg_kinds, aggs, additional_cols] =
+    flatten_single_pass_aggs(requests, stream);
   (void)additional_cols;
   // make table that will hold sparse results
   table sparse_table = create_sparse_results_table(flattened_values, agg_kinds, stream);
@@ -584,8 +595,10 @@ void compute_single_pass_aggs(table_view const& keys,
       flattened_original_cols.column(i), *aggs[i], std::move(sparse_result_cols[i]));
     // TODO: The problem is here:
     //   1. `NTH_ELEMENT` requires `MIN` aggregation on a generated source index.
-    //   2. `MIN` has results cached against the source index column view, not the original column view.
-    //   3. `NTH_ELEMENT` finalize() does not have access the source index column view, to access `MIN` results. 
+    //   2. `MIN` has results cached against the source index column view, not the original column
+    //   view.
+    //   3. `NTH_ELEMENT` finalize() does not have access the source index column view, to access
+    //   `MIN` results.
     // We need a way to register min-results against the original column view.
   }
 }
