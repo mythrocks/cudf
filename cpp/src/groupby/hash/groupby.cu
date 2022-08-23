@@ -140,6 +140,15 @@ class groupby_simple_aggregations_collector final
 
   using cudf::detail::simple_aggregations_collector::visit;
 
+  // Default case.
+  std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
+                                                  aggregation const& agg) override
+  {
+    aggs_and_column_views.push_back(std::make_pair(agg.clone(), original_agg_column));
+    return {};
+  }
+
+  // Aggregation-specific cases.
   std::vector<std::unique_ptr<aggregation>> visit(data_type col_type,
                                                   cudf::detail::min_aggregation const&) override
   {
@@ -593,13 +602,6 @@ void compute_single_pass_aggs(table_view const& keys,
     // Note that the cache will make a copy of this temporary aggregation
     sparse_results->add_result(
       flattened_original_cols.column(i), *aggs[i], std::move(sparse_result_cols[i]));
-    // TODO: The problem is here:
-    //   1. `NTH_ELEMENT` requires `MIN` aggregation on a generated source index.
-    //   2. `MIN` has results cached against the source index column view, not the original column
-    //   view.
-    //   3. `NTH_ELEMENT` finalize() does not have access the source index column view, to access
-    //   `MIN` results.
-    // We need a way to register min-results against the original column view.
   }
 }
 
