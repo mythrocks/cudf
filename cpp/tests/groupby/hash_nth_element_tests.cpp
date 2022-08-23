@@ -40,16 +40,65 @@ TEST_F(HashGroupByNthElementTest, Min)
   print(grouped->get_column(0));
 }
 
-TEST_F(HashGroupByNthElementTest, Nth)
+TEST_F(HashGroupByNthElementTest, FirstWithNulls)
 {
   std::cout << "CALEB: Testing HashGroupByNthElementTest!" << std::endl;
   std::cout << "Nuther print." << std::endl;
 
   auto const grouping_keys = ints{0, 0, 0, 0, 1, 1, 1, 1};
-  auto const agg_values    = ints{10, 20, 30, 40, 50, 60, 70, 80};
+  auto const agg_values    = ints{{10, 20, 30, 40, 50, 60, 70, 80}, nulls_at({0, 1, 2, 3})};
 
   auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
-  aggs.push_back(cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(0));
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(0, null_policy::EXCLUDE));
+  auto agg_request =
+    cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
+  auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};
+  agg_requests.push_back(std::move(agg_request));
+
+  auto [grouped, results] =
+    cudf::groupby::groupby(table_view{{grouping_keys}}).aggregate(agg_requests);
+  std::cout << "Results: " << std::endl;
+  print(*results[0].results[0]);
+  std::cout << "Grouping keys: " << std::endl;
+  print(grouped->get_column(0));
+}
+
+TEST_F(HashGroupByNthElementTest, LastWithNulls)
+{
+  std::cout << "CALEB: Testing HashGroupByNthElementTest!" << std::endl;
+  std::cout << "Nuther print." << std::endl;
+
+  auto const grouping_keys = ints{0, 0, 0, 0, 1, 1, 1, 1};
+  auto const agg_values    = ints{{10, 20, 30, 40, 50, 60, 70, 80}, nulls_at({3})};
+
+  auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
+  auto agg_request =
+    cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
+  auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};
+  agg_requests.push_back(std::move(agg_request));
+
+  auto [grouped, results] =
+    cudf::groupby::groupby(table_view{{grouping_keys}}).aggregate(agg_requests);
+  std::cout << "Results: " << std::endl;
+  print(*results[0].results[0]);
+  std::cout << "Grouping keys: " << std::endl;
+  print(grouped->get_column(0));
+}
+
+TEST_F(HashGroupByNthElementTest, LastWithNulls)
+{
+  std::cout << "CALEB: Testing HashGroupByNthElementTest!" << std::endl;
+  std::cout << "Nuther print." << std::endl;
+
+  auto const grouping_keys = ints{0, 0, 0, 0, 1, 1, 1, 1};
+  auto const agg_values    = ints{{10, 20, 30, 40, 50, 60, 70, 80}, nulls_at({3})};
+
+  auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
   auto agg_request =
     cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
   auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};

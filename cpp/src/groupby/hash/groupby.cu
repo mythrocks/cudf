@@ -205,19 +205,34 @@ class groupby_simple_aggregations_collector final
   }
 
   std::vector<std::unique_ptr<aggregation>> visit(
-    data_type, cudf::detail::nth_element_aggregation const&) override
+    data_type, cudf::detail::nth_element_aggregation const& agg) override
   {
+    auto const num_input_rows = original_agg_column.size();
+    auto const skip_nulls     = agg._null_handling == null_policy::EXCLUDE;
+    auto const n              = agg._n;
+    CUDF_EXPECTS(n == 0 || n == -1,
+                 "Only FIRST and LAST are supported in hash groupby aggregation.");
+    auto const simple_agg = [n] {
+      return n == 0 ? make_min_aggregation() : make_max_aggregation();
+    };
+
     // TODO: Use null mask for skip nulls. Use MAX for LAST. Assuming MIN for FIRST, for now.
-    auto source_index_column = make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
-                                                       original_agg_column.size(),
-                                                       mask_state::UNALLOCATED,
-                                                       stream);
-    thrust::copy(rmm::exec_policy(stream),
-                 thrust::make_counting_iterator<offset_type>(0),
-                 thrust::make_counting_iterator<offset_type>(original_agg_column.size()),
-                 source_index_column->mutable_view().begin<offset_type>());
-    aggs_and_column_views.push_back(
-      std::make_pair(make_min_aggregation(), source_index_column->view()));
+    auto source_index_column = [&] {
+      auto col = make_numeric_column(cudf::data_type{type_to_id<offset_type>()},
+                                     num_input_rows,
+                                     mask_state::UNALLOCATED,
+                                     stream);
+      if (skip_nulls) {  // Adopt input column's null mask.
+        col->set_null_mask(copy_bitmask(original_agg_column), UNKNOWN_NULL_COUNT, stream);
+      }
+      thrust::copy(rmm::exec_policy(stream),
+                   thrust::make_counting_iterator<offset_type>(0),
+                   thrust::make_counting_iterator<offset_type>(original_agg_column.size()),
+                   col->mutable_view().begin<offset_type>());
+      return col;
+    }();
+
+    aggs_and_column_views.push_back(std::pair(simple_agg(), source_index_column->view()));
     additional_columns.push_back(std::move(source_index_column));
     return {};
   }
