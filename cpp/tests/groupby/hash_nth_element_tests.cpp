@@ -49,7 +49,8 @@ TEST_F(HashGroupByNthElementTest, FirstWithNulls)
   auto const agg_values    = ints{{10, 20, 30, 40, 50, 60, 70, 80}, nulls_at({0, 1, 2, 3})};
 
   auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
-  aggs.push_back(cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(0, null_policy::EXCLUDE));
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(0, null_policy::EXCLUDE));
   auto agg_request =
     cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
   auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};
@@ -72,7 +73,8 @@ TEST_F(HashGroupByNthElementTest, LastWithNulls)
   auto const agg_values    = ints{{10, 20, 30, 40, 50, 60, 70, 80}, nulls_at({3})};
 
   auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
-  aggs.push_back(cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
   auto agg_request =
     cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
   auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};
@@ -91,11 +93,12 @@ TEST_F(HashGroupByNthElementTest, ShuffledLastWithNulls)
   std::cout << "CALEB: Testing HashGroupByNthElementTest!" << std::endl;
   std::cout << "Nuther print." << std::endl;
 
-  auto const grouping_keys = ints{  0,  1,  0,  1,  0,  1,  0,  1};
+  auto const grouping_keys = ints{0, 1, 0, 1, 0, 1, 0, 1};
   auto const agg_values    = ints{{10, 50, 20, 60, 30, 70, 40, 80}, nulls_at({6})};
 
   auto aggs = std::vector<std::unique_ptr<cudf::groupby_aggregation>>{};
-  aggs.push_back(cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
+  aggs.push_back(
+    cudf::make_nth_element_aggregation<cudf::groupby_aggregation>(-1, null_policy::EXCLUDE));
   auto agg_request =
     cudf::groupby::aggregation_request{.values = agg_values, .aggregations = std::move(aggs)};
   auto agg_requests = std::vector<cudf::groupby::aggregation_request>{};
