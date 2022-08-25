@@ -524,65 +524,8 @@ single_pass_aggs_flattener::result flatten_single_pass_aggs(host_span<aggregatio
                                                             rmm::cuda_stream_view stream)
 {
   auto flattener = single_pass_aggs_flattener{stream};
-  for (auto const& request : requests) // TODO: std::for_each()? accumulate()?
-  {
-    flattener.flatten(request);
-  }
+  std::for_each(requests.begin(), requests.end(), [&flattener](auto const& request) { flattener.flatten(request); });
   return flattener.get_result();
-}
-
-// flatten aggs to filter in single pass aggs
-std::tuple<table_view,                      ///< Original Aggregation Columns
-           table_view,                      ///< (Possibly) Substituted Aggregation Columns
-           std::vector<aggregation::Kind>,  ///< Simple Aggregation Kinds
-           std::vector<std::unique_ptr<aggregation>>,  ///< Simple Aggregations
-           std::vector<std::unique_ptr<column>>>       ///< Additional columns
-flatten_single_pass_aggs_2(host_span<aggregation_request const> requests,
-                         rmm::cuda_stream_view stream)
-{
-  std::vector<column_view> original_columns, substituted_columns;
-  std::vector<std::unique_ptr<aggregation>> aggs;
-  std::vector<aggregation::Kind> agg_kinds;
-  std::vector<std::unique_ptr<column>> additional_columns;
-
-  for (auto const& request : requests) {
-    auto const& agg_v = request.aggregations;
-
-    std::unordered_set<aggregation::Kind> agg_kinds_set;
-    auto insert_agg = [&](std::unique_ptr<aggregation>&& agg,
-                          column_view const& original_agg_column,
-                          column_view const& substituted_agg_column) {
-      if (agg_kinds_set.insert(agg->kind).second) {
-        agg_kinds.push_back(agg->kind);
-        aggs.push_back(std::move(agg));
-        original_columns.push_back(original_agg_column);
-        substituted_columns.push_back(substituted_agg_column);
-      }
-    };
-
-    auto values_type = cudf::is_dictionary(request.values.type())
-                         ? cudf::dictionary_column_view(request.values).keys().type()
-                         : request.values.type();
-    for (auto&& agg : agg_v) {
-      groupby_simple_aggregations_collector collector{request.values, stream};
-      agg->get_simple_aggregations(values_type, collector);
-      auto& collector_additional_columns = collector.get_additional_columns();
-      std::copy(std::make_move_iterator(collector_additional_columns.begin()),
-                std::make_move_iterator(collector_additional_columns.end()),
-                std::back_inserter(additional_columns));
-      for (auto&& agg_column_pair : collector.get_aggs_and_column_views()) {
-        insert_agg(std::move(agg_column_pair.first),
-                   collector.get_original_agg_column(),
-                   agg_column_pair.second);
-      }
-    }
-  }
-
-  return std::make_tuple(table_view(original_columns),
-                         table_view(substituted_columns),
-                         std::move(agg_kinds),
-                         std::move(aggs),
-                         std::move(additional_columns));
 }
 
 /**
