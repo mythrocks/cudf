@@ -780,7 +780,7 @@ template <typename OrderByT>
 std::unique_ptr<column> grouped_range_rolling_window_impl(
   column_view const& input,
   column_view const& orderby_column,
-  cudf::order const& timestamp_ordering,
+  cudf::order const& order_of_orderby_column,
   rmm::device_uvector<cudf::size_type> const& group_offsets,
   rmm::device_uvector<cudf::size_type> const& group_labels,
   range_window_bounds const& preceding_window,
@@ -790,10 +790,10 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  auto preceding_value = detail::range_comparable_value<OrderByT>(preceding_window);
-  auto following_value = detail::range_comparable_value<OrderByT>(following_window);
+  auto preceding_value = detail::range_comparable_value<OrderByT>(preceding_window, orderby_column.type(), stream);
+  auto following_value = detail::range_comparable_value<OrderByT>(following_window, orderby_column.type(), stream);
 
-  if (timestamp_ordering == cudf::order::ASCENDING) {
+  if (order_of_orderby_column == cudf::order::ASCENDING) {
     return group_offsets.is_empty() ? range_window_ASC(input,
                                                        orderby_column,
                                                        preceding_value,
@@ -856,7 +856,7 @@ struct dispatch_grouped_range_rolling_window {
                    std::unique_ptr<column>>
   operator()(column_view const& input,
              column_view const& orderby_column,
-             cudf::order const& timestamp_ordering,
+             cudf::order const& order_of_orderby_column,
              rmm::device_uvector<cudf::size_type> const& group_offsets,
              rmm::device_uvector<cudf::size_type> const& group_labels,
              range_window_bounds const& preceding_window,
@@ -868,7 +868,7 @@ struct dispatch_grouped_range_rolling_window {
   {
     return grouped_range_rolling_window_impl<OrderByColumnType>(input,
                                                                 orderby_column,
-                                                                timestamp_ordering,
+                                                                order_of_orderby_column,
                                                                 group_offsets,
                                                                 group_labels,
                                                                 preceding_window,

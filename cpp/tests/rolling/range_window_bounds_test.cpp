@@ -151,5 +151,10 @@ TYPED_TEST(NumericRangeWindowBoundsTest, WrongRangeType)
                cudf::logic_error);
 }
 
+TEST_F(RangeWindowBoundsTest, Decimal)
+{
+  
+}
+
 }  // namespace test
 }  // namespace cudf
