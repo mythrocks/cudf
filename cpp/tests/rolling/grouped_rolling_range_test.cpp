@@ -45,10 +45,9 @@ template <typename T>
 using decimals = cudf::test::fixed_point_column_wrapper<T>;
 using ints = fwcw<int32_t>;
 using bigints = fwcw<int64_t>;
+using column_ptr = std::unique_ptr<cudf::column>;
 using namespace numeric;
 using namespace cudf::test::iterators;
-
-using column_ptr = std::unique_ptr<cudf::column>;
 
 auto const power_10 = std::array<int32_t, 5>{1, 10, 100, 1000, 10000};
 
@@ -84,7 +83,7 @@ struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest
   }
 };
 
-using RepresentationTypes = ::testing::Types<numeric::decimal32, numeric::decimal64>;
+using RepresentationTypes = ::testing::Types<numeric::decimal32, numeric::decimal64, numeric::decimal128>;
 
 TYPED_TEST_SUITE(GroupedRollingRangeOrderByDecimalTest, RepresentationTypes);
 
