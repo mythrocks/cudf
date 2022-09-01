@@ -106,13 +106,8 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTest, BasicGrouping)
       return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
     }();
 
-    std::cout << "At scale " << oby_column_scale << ", OBY == " << std::endl;
-    print(*order_by);
-
-    std::cout << "OBY scale == " << oby_column_scale << std::endl;
     for (auto range_scale = oby_column_scale; range_scale <= 2; ++range_scale)
     {
-      std::cout << "Range scale == " << range_scale << std::endl;
       // -2 -> 20000
       // -1 -> 2000
       // 0  -> 200
@@ -126,29 +121,6 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTest, BasicGrouping)
       this->run_test_preceding_2_following_1(order_by->view(), preceding, following);
     }
   }
-}
-
-TEST_F(GroupedRollingRangeTest, TestDecimal)
-{
-  using Rep = int64_t; // Representation type for order_by column.
-  auto const oby_column_scale = 2;
-  auto const order_by      = [num_rows = this->num_rows, oby_column_scale] {
-    auto const begin = thrust::make_counting_iterator<Rep>(0);
-    return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
-  }();
-
-  print(order_by->view());
-
-  /*
-  for (auto i : {-2, -1, 0, 1, 2})
-  {
-    // auto fp = numeric::fixed_point<int32_t, numeric::Radix::BASE_10>{1234.5678, scale_type{i}};
-    auto fp = numeric::fixed_point<int32_t, numeric::Radix::BASE_10>{200, scale_type{i}};
-    std::cout << fp.value() << std::endl;
-  }
-  */
-
-  // auto fp = numeric::decimal32{200, scale_type{0}};
 }
 
 } // namespace cudf::test::rolling
