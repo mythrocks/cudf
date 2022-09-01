@@ -51,18 +51,17 @@ using namespace cudf::test::iterators;
 
 struct BaseGroupedRollingRangeOrderByDecimalTest : public BaseFixture {
   // Stand-in for std::pow(10, n), but for integral return.
-  static constexpr std::array<int32_t, 6> pow10 {1, 10, 100, 1000, 10000, 100000};
+  static constexpr std::array<int32_t, 6> pow10{1, 10, 100, 1000, 10000, 100000};
   // Test data.
   column_ptr const grouping_keys = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
   column_ptr const agg_values    = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
   cudf::size_type const num_rows = grouping_keys->size();
 };
 
-using base = BaseGroupedRollingRangeOrderByDecimalTest; // Shortcut to base test class.
+using base = BaseGroupedRollingRangeOrderByDecimalTest;  // Shortcut to base test class.
 
 template <typename DecimalT>
 struct GroupedRollingRangeOrderByDecimalTypedTest : BaseGroupedRollingRangeOrderByDecimalTest {
-
   auto make_fixed_point_range_bounds(typename DecimalT::rep value, scale_type scale)
   {
     return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT>(value, scale));

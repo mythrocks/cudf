@@ -224,7 +224,7 @@ namespace {
 /**
  * @brief Add `delta` to value, and cap at numeric_limits::max(), for signed types.
  */
-template <typename T, std::enable_if_t<cuda::std::numeric_limits<T>::is_signed>* = nullptr>
+template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T add_safe(T const& value, T const& delta)
 {
   // delta >= 0.
@@ -236,7 +236,7 @@ __device__ T add_safe(T const& value, T const& delta)
 /**
  * @brief Add `delta` to value, and cap at numeric_limits::max(), for unsigned types.
  */
-template <typename T, std::enable_if_t<!cuda::std::numeric_limits<T>::is_signed>* = nullptr>
+template <typename T, CUDF_ENABLE_IF(not cuda::std::numeric_limits<T>::is_signed)>
 __device__ T add_safe(T const& value, T const& delta)
 {
   // delta >= 0.
@@ -248,7 +248,7 @@ __device__ T add_safe(T const& value, T const& delta)
 /**
  * @brief Subtract `delta` from value, and cap at numeric_limits::min(), for signed types.
  */
-template <typename T, std::enable_if_t<cuda::std::numeric_limits<T>::is_signed>* = nullptr>
+template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T subtract_safe(T const& value, T const& delta)
 {
   // delta >= 0;
@@ -260,7 +260,7 @@ __device__ T subtract_safe(T const& value, T const& delta)
 /**
  * @brief Subtract `delta` from value, and cap at numeric_limits::min(), for unsigned types.
  */
-template <typename T, std::enable_if_t<!cuda::std::numeric_limits<T>::is_signed>* = nullptr>
+template <typename T, CUDF_ENABLE_IF(not cuda::std::numeric_limits<T>::is_signed)>
 __device__ T subtract_safe(T const& value, T const& delta)
 {
   // delta >= 0;
