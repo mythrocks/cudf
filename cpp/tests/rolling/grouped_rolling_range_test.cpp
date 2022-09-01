@@ -51,7 +51,7 @@ using namespace cudf::test::iterators;
 
 auto const power_10 = std::array<int32_t, 5>{1, 10, 100, 1000, 10000};
 
-struct GroupedRollingRangeTest : public BaseFixture 
+struct GroupedRollingRangeOrderByDecimalTest : public BaseFixture 
 {
   column_ptr const grouping_keys  = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
   column_ptr const agg_values     = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
@@ -59,7 +59,7 @@ struct GroupedRollingRangeTest : public BaseFixture
 };
 
 template <typename DecimalT>
-struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest 
+struct GroupedRollingRangeOrderByDecimalTypedTest : GroupedRollingRangeOrderByDecimalTest 
 {
   auto make_fixed_point_range_bounds(typename DecimalT::rep value, scale_type scale)
   {
@@ -85,9 +85,9 @@ struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest
 
 using RepresentationTypes = ::testing::Types<numeric::decimal32, numeric::decimal64, numeric::decimal128>;
 
-TYPED_TEST_SUITE(GroupedRollingRangeOrderByDecimalTest, RepresentationTypes);
+TYPED_TEST_SUITE(GroupedRollingRangeOrderByDecimalTypedTest, RepresentationTypes);
 
-TYPED_TEST(GroupedRollingRangeOrderByDecimalTest, BasicGrouping)
+TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
 {
   using DecimalT = TypeParam; // Decimal type for order_by column.
   using Rep = typename DecimalT::rep; // Representation type for order_by column.
