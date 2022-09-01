@@ -49,16 +49,20 @@ using column_ptr = std::unique_ptr<cudf::column>;
 using namespace numeric;
 using namespace cudf::test::iterators;
 
-auto const power_10 = std::array<int32_t, 5>{1, 10, 100, 1000, 10000};
-
-struct GroupedRollingRangeOrderByDecimalTest : public BaseFixture {
+struct BaseGroupedRollingRangeOrderByDecimalTest : public BaseFixture {
+  // Stand-in for std::pow(10, n), but for integral return.
+  static constexpr std::array<int32_t, 6> pow10 {1, 10, 100, 1000, 10000, 100000};
+  // Test data.
   column_ptr const grouping_keys = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
   column_ptr const agg_values    = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
   cudf::size_type const num_rows = grouping_keys->size();
 };
 
+using base = BaseGroupedRollingRangeOrderByDecimalTest; // Shortcut to base test class.
+
 template <typename DecimalT>
-struct GroupedRollingRangeOrderByDecimalTypedTest : GroupedRollingRangeOrderByDecimalTest {
+struct GroupedRollingRangeOrderByDecimalTypedTest : BaseGroupedRollingRangeOrderByDecimalTest {
+
   auto make_fixed_point_range_bounds(typename DecimalT::rep value, scale_type scale)
   {
     return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT>(value, scale));
@@ -100,7 +104,7 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
     auto const order_by = [num_rows = this->num_rows, oby_column_scale] {
       auto const begin = thrust::make_transform_iterator(
         thrust::make_counting_iterator<Rep>(0),
-        [&](auto i) -> Rep { return (i * 10000) / power_10[oby_column_scale + 2]; });
+        [&](auto i) -> Rep { return (i * 10000) / base::pow10[oby_column_scale + 2]; });
       return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
     }();
 
@@ -116,7 +120,7 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
         //   0    ->       200
         //   1    ->       20
         //   2    ->       2
-        return (value * 100) / power_10[scale + 2];
+        return (value * 100) / base::pow10[scale + 2];
       };
       auto const preceding = this->make_fixed_point_range_bounds(
         rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
