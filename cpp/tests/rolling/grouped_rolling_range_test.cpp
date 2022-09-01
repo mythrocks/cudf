@@ -50,20 +50,21 @@ using namespace cudf::test::iterators;
 
 using column_ptr = std::unique_ptr<cudf::column>;
 
+auto const power_10 = std::array<int32_t, 5>{1, 10, 100, 1000, 10000};
+
 struct GroupedRollingRangeTest : public BaseFixture 
 {
-  column_ptr const grouping_keys = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
-  column_ptr const agg_values    = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
-  cudf::size_type const num_rows = grouping_keys->size();
+  column_ptr const grouping_keys  = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
+  column_ptr const agg_values     = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
+  cudf::size_type const num_rows  = grouping_keys->size();
 };
 
 template <typename DecimalT>
 struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest 
 {
-  template <typename DecimalT2 = DecimalT>
-  auto make_fixed_point_range_bounds(typename DecimalT2::rep value, scale_type scale)
+  auto make_fixed_point_range_bounds(typename DecimalT::rep value, scale_type scale)
   {
-    return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT2>(value, scale));
+    return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT>(value, scale));
   }
 
   void run_test_preceding_2_following_1(column_view const& order_by, 
@@ -81,7 +82,6 @@ struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest
     auto const expected_results = bigints{{2, 3, 4, 4, 4, 3, 4, 6, 8, 6, 6, 9, 12, 9}, no_nulls()};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, expected_results);
   }
-
 };
 
 using RepresentationTypes = ::testing::Types<numeric::decimal32>;
@@ -93,14 +93,62 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTest, BasicGrouping)
   using DecimalT = TypeParam; // Decimal type for order_by column.
   using Rep = typename DecimalT::rep; // Representation type for order_by column.
 
-  auto const order_by      = [num_rows = this->num_rows] {
+  // For different scales, generate order_by column with 
+  // the same effective values:           [0, 100,   200,   300,   ... 1100,   1200,   1300]
+  // For scale == -2, the rep values are: [0, 10000, 20000, 30000, ... 110000, 120000, 130000]
+  // For scale ==  2, the rep values are: [0, 1,     2,     3,     ... 11,     12,     13]
+  for (auto oby_column_scale : {-2, -1, 0, 1, 2})
+  {
+    auto const order_by      = [num_rows = this->num_rows, oby_column_scale] {
+      auto const begin = thrust::make_transform_iterator(
+        thrust::make_counting_iterator<Rep>(0), 
+        [&](auto i) -> Rep { return (i * 10000) / power_10[oby_column_scale + 2]; }); 
+      return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
+    }();
+
+    std::cout << "At scale " << oby_column_scale << ", OBY == " << std::endl;
+    print(*order_by);
+
+    std::cout << "OBY scale == " << oby_column_scale << std::endl;
+    for (auto range_scale = oby_column_scale; range_scale <= 2; ++range_scale)
+    {
+      std::cout << "Range scale == " << range_scale << std::endl;
+      // -2 -> 20000
+      // -1 -> 2000
+      // 0  -> 200
+      // 1  -> 20
+      // 2  -> 2
+      auto rescale_range_value = [&](auto value, auto scale) {
+        return (value * 100) / power_10[scale + 2];
+      };
+      auto const preceding = this->make_fixed_point_range_bounds(rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
+      auto const following = this->make_fixed_point_range_bounds(rescale_range_value(Rep{100}, range_scale), scale_type{range_scale});
+      this->run_test_preceding_2_following_1(order_by->view(), preceding, following);
+    }
+  }
+}
+
+TEST_F(GroupedRollingRangeTest, TestDecimal)
+{
+  using Rep = int64_t; // Representation type for order_by column.
+  auto const oby_column_scale = 2;
+  auto const order_by      = [num_rows = this->num_rows, oby_column_scale] {
     auto const begin = thrust::make_counting_iterator<Rep>(0);
-    return decimals<Rep>{begin, begin + num_rows, scale_type{-2}}.release();
+    return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
   }();
 
-  auto const preceding = this->template make_fixed_point_range_bounds<DecimalT>(Rep{2}, scale_type{-2});
-  auto const following = this->template make_fixed_point_range_bounds<DecimalT>(Rep{1}, scale_type{-2});
-  this->run_test_preceding_2_following_1(order_by->view(), preceding, following);
+  print(order_by->view());
+
+  /*
+  for (auto i : {-2, -1, 0, 1, 2})
+  {
+    // auto fp = numeric::fixed_point<int32_t, numeric::Radix::BASE_10>{1234.5678, scale_type{i}};
+    auto fp = numeric::fixed_point<int32_t, numeric::Radix::BASE_10>{200, scale_type{i}};
+    std::cout << fp.value() << std::endl;
+  }
+  */
+
+  // auto fp = numeric::decimal32{200, scale_type{0}};
 }
 
 } // namespace cudf::test::rolling
