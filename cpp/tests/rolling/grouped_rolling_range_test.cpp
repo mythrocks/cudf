@@ -67,9 +67,9 @@ struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest
     return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT>(value, scale));
   }
 
-  void run_test_preceding_2_following_1(column_view const& order_by, 
-                                        range_window_bounds preceding, 
-                                        range_window_bounds following)
+  void run_test_no_null_oby(column_view const& order_by, 
+                            range_window_bounds preceding, 
+                            range_window_bounds following)
   {
     auto const results = cudf::grouped_range_rolling_window(cudf::table_view{{grouping_keys->view()}},
                                                             order_by,
@@ -84,7 +84,7 @@ struct GroupedRollingRangeOrderByDecimalTest : GroupedRollingRangeTest
   }
 };
 
-using RepresentationTypes = ::testing::Types<numeric::decimal32>;
+using RepresentationTypes = ::testing::Types<numeric::decimal32, numeric::decimal64>;
 
 TYPED_TEST_SUITE(GroupedRollingRangeOrderByDecimalTest, RepresentationTypes);
 
@@ -106,19 +106,24 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTest, BasicGrouping)
       return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
     }();
 
+    // Run tests for range bounds generated for all scales >= oby_column_scale.
     for (auto range_scale = oby_column_scale; range_scale <= 2; ++range_scale)
     {
-      // -2 -> 20000
-      // -1 -> 2000
-      // 0  -> 200
-      // 1  -> 20
-      // 2  -> 2
+      // Scale the range bounds value, depending on the scale,
+      // so that the effective range bounds value is the same.
+      // This keeps the expected results the same for all scales.
       auto rescale_range_value = [&](auto value, auto scale) {
+        // Scale  ->   Rep (for value == 200)
+        //  -2    ->       20000
+        //  -1    ->       2000
+        //   0    ->       200
+        //   1    ->       20
+        //   2    ->       2
         return (value * 100) / power_10[scale + 2];
       };
       auto const preceding = this->make_fixed_point_range_bounds(rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
       auto const following = this->make_fixed_point_range_bounds(rescale_range_value(Rep{100}, range_scale), scale_type{range_scale});
-      this->run_test_preceding_2_following_1(order_by->view(), preceding, following);
+      this->run_test_no_null_oby(order_by->view(), preceding, following);
     }
   }
 }
