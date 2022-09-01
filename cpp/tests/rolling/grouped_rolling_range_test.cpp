@@ -42,72 +42,70 @@ namespace cudf::test::rolling {
 template <typename T>
 using fwcw = cudf::test::fixed_width_column_wrapper<T>;
 template <typename T>
-using decimals = cudf::test::fixed_point_column_wrapper<T>;
-using ints = fwcw<int32_t>;
-using bigints = fwcw<int64_t>;
+using decimals   = cudf::test::fixed_point_column_wrapper<T>;
+using ints       = fwcw<int32_t>;
+using bigints    = fwcw<int64_t>;
 using column_ptr = std::unique_ptr<cudf::column>;
 using namespace numeric;
 using namespace cudf::test::iterators;
 
 auto const power_10 = std::array<int32_t, 5>{1, 10, 100, 1000, 10000};
 
-struct GroupedRollingRangeOrderByDecimalTest : public BaseFixture 
-{
-  column_ptr const grouping_keys  = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
-  column_ptr const agg_values     = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
-  cudf::size_type const num_rows  = grouping_keys->size();
+struct GroupedRollingRangeOrderByDecimalTest : public BaseFixture {
+  column_ptr const grouping_keys = ints{0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2}.release();
+  column_ptr const agg_values    = ints{1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}.release();
+  cudf::size_type const num_rows = grouping_keys->size();
 };
 
 template <typename DecimalT>
-struct GroupedRollingRangeOrderByDecimalTypedTest : GroupedRollingRangeOrderByDecimalTest 
-{
+struct GroupedRollingRangeOrderByDecimalTypedTest : GroupedRollingRangeOrderByDecimalTest {
   auto make_fixed_point_range_bounds(typename DecimalT::rep value, scale_type scale)
   {
     return cudf::range_window_bounds::get(*cudf::make_fixed_point_scalar<DecimalT>(value, scale));
   }
 
-  void run_test_no_null_oby(column_view const& order_by, 
-                            range_window_bounds preceding, 
+  void run_test_no_null_oby(column_view const& order_by,
+                            range_window_bounds preceding,
                             range_window_bounds following)
   {
-    auto const results = cudf::grouped_range_rolling_window(cudf::table_view{{grouping_keys->view()}},
-                                                            order_by,
-                                                            cudf::order::ASCENDING,
-                                                            agg_values->view(),
-                                                            preceding,
-                                                            following, 
-                                                            1, // min_periods
-                                                            *cudf::make_sum_aggregation<rolling_aggregation>());
+    auto const results =
+      cudf::grouped_range_rolling_window(cudf::table_view{{grouping_keys->view()}},
+                                         order_by,
+                                         cudf::order::ASCENDING,
+                                         agg_values->view(),
+                                         preceding,
+                                         following,
+                                         1,  // min_periods
+                                         *cudf::make_sum_aggregation<rolling_aggregation>());
     auto const expected_results = bigints{{2, 3, 4, 4, 4, 3, 4, 6, 8, 6, 6, 9, 12, 9}, no_nulls()};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, expected_results);
   }
 };
 
-using RepresentationTypes = ::testing::Types<numeric::decimal32, numeric::decimal64, numeric::decimal128>;
+using RepresentationTypes =
+  ::testing::Types<numeric::decimal32, numeric::decimal64, numeric::decimal128>;
 
 TYPED_TEST_SUITE(GroupedRollingRangeOrderByDecimalTypedTest, RepresentationTypes);
 
 TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
 {
-  using DecimalT = TypeParam; // Decimal type for order_by column.
-  using Rep = typename DecimalT::rep; // Representation type for order_by column.
+  using DecimalT = TypeParam;               // Decimal type for order_by column.
+  using Rep      = typename DecimalT::rep;  // Representation type for order_by column.
 
-  // For different scales, generate order_by column with 
+  // For different scales, generate order_by column with
   // the same effective values:           [0, 100,   200,   300,   ... 1100,   1200,   1300]
   // For scale == -2, the rep values are: [0, 10000, 20000, 30000, ... 110000, 120000, 130000]
   // For scale ==  2, the rep values are: [0, 1,     2,     3,     ... 11,     12,     13]
-  for (auto oby_column_scale : {-2, -1, 0, 1, 2})
-  {
-    auto const order_by      = [num_rows = this->num_rows, oby_column_scale] {
+  for (auto oby_column_scale : {-2, -1, 0, 1, 2}) {
+    auto const order_by = [num_rows = this->num_rows, oby_column_scale] {
       auto const begin = thrust::make_transform_iterator(
-        thrust::make_counting_iterator<Rep>(0), 
-        [&](auto i) -> Rep { return (i * 10000) / power_10[oby_column_scale + 2]; }); 
+        thrust::make_counting_iterator<Rep>(0),
+        [&](auto i) -> Rep { return (i * 10000) / power_10[oby_column_scale + 2]; });
       return decimals<Rep>{begin, begin + num_rows, scale_type{oby_column_scale}}.release();
     }();
 
     // Run tests for range bounds generated for all scales >= oby_column_scale.
-    for (auto range_scale = oby_column_scale; range_scale <= 2; ++range_scale)
-    {
+    for (auto range_scale = oby_column_scale; range_scale <= 2; ++range_scale) {
       // Scale the range bounds value, depending on the scale,
       // so that the effective range bounds value is the same.
       // This keeps the expected results the same for all scales.
@@ -120,11 +118,13 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
         //   2    ->       2
         return (value * 100) / power_10[scale + 2];
       };
-      auto const preceding = this->make_fixed_point_range_bounds(rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
-      auto const following = this->make_fixed_point_range_bounds(rescale_range_value(Rep{100}, range_scale), scale_type{range_scale});
+      auto const preceding = this->make_fixed_point_range_bounds(
+        rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
+      auto const following = this->make_fixed_point_range_bounds(
+        rescale_range_value(Rep{100}, range_scale), scale_type{range_scale});
       this->run_test_no_null_oby(order_by->view(), preceding, following);
     }
   }
 }
 
-} // namespace cudf::test::rolling
+}  // namespace cudf::test::rolling

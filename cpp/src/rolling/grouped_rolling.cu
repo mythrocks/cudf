@@ -240,8 +240,9 @@ template <typename T, std::enable_if_t<!cuda::std::numeric_limits<T>::is_signed>
 __device__ T add_safe(T const& value, T const& delta)
 {
   // delta >= 0.
-  return ((cuda::std::numeric_limits<T>::max() - value) >= delta) ? (value + delta)
-                                                            : cuda::std::numeric_limits<T>::max();
+  return ((cuda::std::numeric_limits<T>::max() - value) >= delta)
+           ? (value + delta)
+           : cuda::std::numeric_limits<T>::max();
 }
 
 /**
@@ -263,8 +264,9 @@ template <typename T, std::enable_if_t<!cuda::std::numeric_limits<T>::is_signed>
 __device__ T subtract_safe(T const& value, T const& delta)
 {
   // delta >= 0;
-  return ((value - cuda::std::numeric_limits<T>::min()) >= delta) ? (value - delta)
-                                                            : cuda::std::numeric_limits<T>::min();
+  return ((value - cuda::std::numeric_limits<T>::min()) >= delta)
+           ? (value - delta)
+           : cuda::std::numeric_limits<T>::min();
 }
 
 /// Given a single, ungrouped order-by column, return the indices corresponding
@@ -790,8 +792,10 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  auto preceding_value = detail::range_comparable_value<OrderByT>(preceding_window, orderby_column.type(), stream);
-  auto following_value = detail::range_comparable_value<OrderByT>(following_window, orderby_column.type(), stream);
+  auto preceding_value =
+    detail::range_comparable_value<OrderByT>(preceding_window, orderby_column.type(), stream);
+  auto following_value =
+    detail::range_comparable_value<OrderByT>(following_window, orderby_column.type(), stream);
 
   if (order_of_orderby_column == cudf::order::ASCENDING) {
     return group_offsets.is_empty() ? range_window_ASC(input,

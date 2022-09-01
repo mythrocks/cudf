@@ -45,16 +45,14 @@ struct range_scalar_constructor {
       static_cast<duration_scalar<T> const&>(range_scalar_));
   }
 
-  template <typename T,
-            CUDF_ENABLE_IF(std::is_integral_v<T> && not cudf::is_boolean<T>())>
+  template <typename T, CUDF_ENABLE_IF(std::is_integral_v<T> && not cudf::is_boolean<T>())>
   std::unique_ptr<scalar> operator()(scalar const& range_scalar_) const
   {
     return std::make_unique<numeric_scalar<T>>(
       static_cast<numeric_scalar<T> const&>(range_scalar_));
   }
 
-  template <typename T,
-            CUDF_ENABLE_IF(cudf::is_fixed_point<T>())>
+  template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_point<T>())>
   std::unique_ptr<scalar> operator()(scalar const& range_scalar_) const
   {
     return std::make_unique<fixed_point_scalar<T>>(
