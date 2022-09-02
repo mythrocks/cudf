@@ -22,8 +22,10 @@
 #include <cudf_test/type_lists.hpp>
 
 #include <cudf/aggregation.hpp>
+#include <cudf/column/column.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/fixed_point/fixed_point.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/rolling.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/table/table_view.hpp>
@@ -83,6 +85,37 @@ struct GroupedRollingRangeOrderByDecimalTypedTest : BaseGroupedRollingRangeOrder
     auto const expected_results = bigints{{2, 3, 4, 4, 4, 3, 4, 6, 8, 6, 6, 9, 12, 9}, no_nulls()};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, expected_results);
   }
+
+  void run_test_nulls_in_oby(column_view const& order_by,
+                             range_window_bounds preceding,
+                             range_window_bounds following)
+  {
+    // Nullify the first two rows of each group in the order_by column.
+    auto const nulled_order_by = [&]() {
+      auto col           = cudf::column{order_by};
+      auto new_null_mask = create_null_mask(col.size(), mask_state::ALL_VALID);
+      set_null_mask(
+        static_cast<bitmask_type*>(new_null_mask.data()), 0, 2, false);  // Nulls in first group.
+      set_null_mask(
+        static_cast<bitmask_type*>(new_null_mask.data()), 6, 8, false);  // Nulls in second group.
+      set_null_mask(
+        static_cast<bitmask_type*>(new_null_mask.data()), 10, 12, false);  // Nulls in third group.
+      col.set_null_mask(std::move(new_null_mask));
+      return col;
+    }();
+
+    auto const results =
+      cudf::grouped_range_rolling_window(cudf::table_view{{grouping_keys->view()}},
+                                         nulled_order_by.view(),
+                                         cudf::order::ASCENDING,
+                                         agg_values->view(),
+                                         preceding,
+                                         following,
+                                         1,  // min_periods
+                                         *cudf::make_sum_aggregation<rolling_aggregation>());
+    auto const expected_results = bigints{{2, 2, 2, 3, 4, 3, 4, 4, 4, 4, 6, 6, 6, 6}, no_nulls()};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, expected_results);
+  }
 };
 
 using RepresentationTypes =
@@ -125,7 +158,9 @@ TYPED_TEST(GroupedRollingRangeOrderByDecimalTypedTest, BasicGrouping)
         rescale_range_value(Rep{200}, range_scale), scale_type{range_scale});
       auto const following = this->make_fixed_point_range_bounds(
         rescale_range_value(Rep{100}, range_scale), scale_type{range_scale});
+
       this->run_test_no_null_oby(order_by->view(), preceding, following);
+      this->run_test_nulls_in_oby(order_by->view(), preceding, following);
     }
   }
 }
