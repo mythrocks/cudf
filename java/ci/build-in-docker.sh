@@ -20,7 +20,7 @@ set -ex
 gcc --version
 
 SKIP_JAVA_TESTS=${SKIP_JAVA_TESTS:-true}
-BUILD_CPP_TESTS=${BUILD_CPP_TESTS:-OFF}
+BUILD_CPP_TESTS=${BUILD_CPP_TESTS:-ON}
 ENABLE_CUDA_STATIC_RUNTIME=${ENABLE_CUDA_STATIC_RUNTIME:-ON}
 ENABLE_PTDS=${ENABLE_PTDS:-ON}
 RMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL:-OFF}
@@ -51,8 +51,8 @@ export CUDACXX=/usr/local/cuda/bin/nvcc
 export LIBCUDF_KERNEL_CACHE_PATH=/rapids
 
 ###### Build libcudf ######
-rm -rf "$WORKSPACE/cpp/build"
-mkdir -p "$WORKSPACE/cpp/build"
+# rm -rf "$WORKSPACE/cpp/build"
+# mkdir -p "$WORKSPACE/cpp/build"
 cd "$WORKSPACE/cpp/build"
 cmake .. -G"${CMAKE_GENERATOR}" \
          -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
@@ -63,6 +63,7 @@ cmake .. -G"${CMAKE_GENERATOR}" \
          -DBUILD_TESTS=$BUILD_CPP_TESTS \
          -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=$ENABLE_PTDS \
          -DRMM_LOGGING_LEVEL=$RMM_LOGGING_LEVEL \
+         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
          -DBUILD_SHARED_LIBS=OFF
 
 if [[ -z "${PARALLEL_LEVEL}" ]]; then

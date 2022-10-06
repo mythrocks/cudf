@@ -2482,6 +2482,13 @@ TEST_F(ParquetWriterStressTest, DeviceWriteLargeTableWithValids)
   CUDF_TEST_EXPECT_TABLES_EQUAL(custom_tbl.tbl->view(), expected->view());
 }
 
+TEST_F(ParquetReaderTest, BorkedZSTD)
+{
+  cudf::io::parquet_reader_options read_opts = cudf_io::parquet_reader_options::builder(cudf::io::source_info{"borked.zstd.parquet"});
+  auto const result = cudf::io::read_parquet(read_opts);
+  cudf::test::print(result.tbl->get_column(0));
+}
+
 TEST_F(ParquetReaderTest, UserBounds)
 {
   // trying to read more rows than there are should result in

@@ -29,15 +29,16 @@ void foo(std::string const& msg)
 
 void test(long thread_no)
 {
-    // auto constexpr num_rows = 166'666'667;
+    auto constexpr num_rows = 166'666'667;
     // auto constexpr num_rows = 166'666'667/8; // Fails  compute sanitizer.
-    auto constexpr num_rows = 166'666'667/16;   // Passes compute sanitizer.
+    // auto constexpr num_rows = 166'666'667/16;   // Passes compute sanitizer.
 
     auto input = [&] {
         auto col = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64}, num_rows);
         auto begin = col->mutable_view().begin<int64_t>();
         auto end = col->mutable_view().end<int64_t>();
-        thrust::tabulate(thrust::device, begin, end, [thread_no, num_rows]__device__(auto i) { return thread_no * num_rows + i; });
+        thrust::tabulate(thrust::device, begin, end, 
+                        [thread_no, num_rows]__device__(auto i) { return thread_no * num_rows + i; });
         return col;
     }();
 
@@ -72,6 +73,7 @@ TEST_F(ContainsREBorkTest, Test2Threads)
         auto thread1 = std::thread{test, 1};
         thread0.join();
         thread1.join();
+        std::cout << std::endl;
         // std::cout << "Sleeping 5..." << std::endl;
         // using namespace std::chrono_literals;
         // std::this_thread::sleep_for(5000ms);
