@@ -1323,6 +1323,53 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_readCSV(
   CATCH_STD(env, NULL);
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_testBoolNative(JNIEnv *env, jclass, jboolean boo)
+{
+  std::cout << "CALEB: Native: boo == " <<  static_cast<int>(boo) << std::endl; 
+  std::cout << "CALEB: Native: As bool: boo == " << std::boolalpha << static_cast<bool>(boo) << std::endl; 
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToFile(JNIEnv *env,
+                                                                jclass,
+                                                                jlong j_table_handle,
+                                                                jobjectArray j_column_names,
+                                                                jboolean include_header,
+                                                                jstring j_row_delimiter,
+                                                                jbyte j_field_delimiter,
+                                                                jstring j_null_value,
+                                                                jstring j_output_path) 
+{
+  JNI_NULL_CHECK(env, j_table_handle, "table handle cannot be null.", );
+  JNI_NULL_CHECK(env, j_column_names, "column name array cannot be null", );
+  JNI_NULL_CHECK(env, j_row_delimiter, "row delimiter cannot be null", );
+  JNI_NULL_CHECK(env, j_field_delimiter, "field delimiter cannot be null", );
+  JNI_NULL_CHECK(env, j_null_value, "null representation string cannot be itself null", );
+  JNI_NULL_CHECK(env, j_output_path, "output path cannot be null", );
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const native_output_path = cudf::jni::native_jstring{env, j_output_path};
+    auto const output_path = native_output_path.get();
+
+    auto const table = reinterpret_cast<cudf::table_view *>(j_table_handle);
+    auto const n_column_names = cudf::jni::native_jstringArray{env, j_column_names};
+    auto const column_names = n_column_names.as_cpp_vector();
+
+    auto const line_terminator = cudf::jni::native_jstring{env, j_row_delimiter};
+    auto const na_rep = cudf::jni::native_jstring{env, j_null_value};
+    auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{output_path}, *table)
+                        .names(column_names)
+                        .include_header(static_cast<bool>(include_header))
+                        .line_terminator(line_terminator.get())
+                        .inter_column_delimiter(j_field_delimiter)
+                        .na_rep(na_rep.get());
+
+    cudf::io::write_csv(options.build());
+  }
+  CATCH_STD(env, );
+}
+
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_readAndInferJSON(
     JNIEnv *env, jclass, jlong buffer, jlong buffer_length, jboolean day_first, jboolean lines) {
 

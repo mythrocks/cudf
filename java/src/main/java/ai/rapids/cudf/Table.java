@@ -857,6 +857,33 @@ public final class Table implements AutoCloseable {
         opts.getFalseValues()));
   }
 
+  private static native void testBoolNative(boolean boo) throws CudfException;
+
+  public void testBool(boolean boo)
+  {
+    Table.testBoolNative(boo);
+  }
+
+  private static native void writeCSVToFile(long table,
+                                            String[] columnNames,
+                                            boolean includeHeader,
+                                            String rowDelimiter,
+                                            byte fieldDelimiter,
+                                            String nullValue,
+                                            String outputPath) throws CudfException;
+
+  public void writeCSVToFile(CSVWriterOptions options, String outputPath)
+  {
+    testBoolNative(options.getIncludeHeader());
+    writeCSVToFile(nativeHandle, 
+                   options.getColumnNames(), 
+                   options.getIncludeHeader(), 
+                   options.getRowDelimiter(), 
+                   options.getFieldDelimiter(), 
+                   options.getNullValue(), 
+                   outputPath);
+  }
+
   /**
    * Read a JSON file using the default JSONOptions.
    * @param schema the schema of the file.  You may use Schema.INFERRED to infer the schema.

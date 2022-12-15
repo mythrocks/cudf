@@ -575,6 +575,88 @@ public class TableTest extends CudfTestBase {
     }
   }
 
+  /* 
+  @Test
+  void testWriteCSVToBuffer() {
+    Schema schema = Schema.builder().column(DType.INT32, "a").build();
+    CSVWriterOptions writeOptions = CSVWriterOptions.builder()
+                                               .withColumnNames(schema.getColumnNames())
+                                               .withIncludeHeader(false)
+                                               .withFieldDelimiter((byte)'|')
+                                               .withRowDelimiter("\n")
+                                               .build();
+    try (Table inputTable 
+          = new Table.TestBuilder()
+              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+              .build();
+         MyBufferConsumer consumer = new MyBufferConsumer()) {
+      inputTable.writeCSVToBuffer(writeOptions, consumer);
+
+      // Read back.
+      CSVOptions readOptions = CSVOptions.builder()
+                                         .includeColumn("a")
+                                         .hasHeader(false)
+                                         .withDelim(',')
+                                         .build();
+
+      try (Table readTable = Table.readCSV(schema, 
+                                           readOptions, 
+                                           consumer.buffer, 0, consumer.offset))
+      {
+        assertTablesAreEqual(inputTable, readTable);
+      }
+    }
+
+  }*/
+
+  @Test
+  void testWriteCSVToFile() throws IOException {
+    File outputFile = File.createTempFile("testWriteCSVToFile", ".csv");
+    Schema schema = Schema.builder()
+                          .column(DType.INT32, "a")
+                          .column(DType.FLOAT64, "b").build(); // TODO: Switch to Float32.
+    CSVWriterOptions writeOptions = CSVWriterOptions.builder()
+                                               .withColumnNames(schema.getColumnNames())
+                                               .withIncludeHeader(false)
+                                               .withFieldDelimiter((byte)'\u0001')
+                                               .withRowDelimiter("\n")
+                                               .build();
+    try (Table inputTable 
+          = new Table.TestBuilder()
+              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+              .column(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
+              .build()) {
+      // inputTable.writeCSVToFile(writeOptions, "/tmp/testWriteCSVFile.csv");
+      inputTable.writeCSVToFile(writeOptions, outputFile.getAbsolutePath());
+      
+      // Read back.
+      CSVOptions readOptions = CSVOptions.builder()
+                                         .includeColumn("a")
+                                         .includeColumn("b")
+                                         .hasHeader(false)
+                                         .withDelim('\u0001')
+                                         .build();
+      try (Table readTable = Table.readCSV(schema, readOptions, outputFile)) {
+        assertTablesAreEqual(inputTable, readTable);
+      }
+    } finally {
+      outputFile.delete();
+    }
+  }
+
+  @Test
+  void testBool()
+  {
+    try (Table inputTable 
+          = new Table.TestBuilder()
+              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+              .build()) {
+      inputTable.testBool(false);
+      inputTable.testBool(true);
+    }
+
+  }
+
   @Test
   void testReadParquet() {
     ParquetOptions opts = ParquetOptions.builder()
