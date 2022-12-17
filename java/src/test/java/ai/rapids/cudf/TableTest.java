@@ -639,6 +639,10 @@ public class TableTest extends CudfTestBase {
               .build();
           MyBufferConsumer consumer = new MyBufferConsumer()) {
       inputTable.writeCSVToBuffer(writeOptions, consumer);
+
+      System.out.println("CALEB: TableTest: Buffer offset: " + consumer.offset);
+      ByteBuffer buff = consumer.buffer.asByteBuffer(0, Long.valueOf(consumer.offset).intValue());
+      System.out.println("CALEB: Buffer: " + buff);
       
       // Read back.
       CSVOptions readOptions = CSVOptions.builder()
@@ -7585,10 +7589,12 @@ public class TableTest extends CudfTestBase {
 
     public MyBufferConsumer() {
       buffer = HostMemoryBuffer.allocate(10 * 1024 * 1024);
+      System.out.println("MyBufferConsumer::ctor()!! Alloced address: " + buffer.getAddress());
     }
 
     @Override
     public void handleBuffer(HostMemoryBuffer src, long len) {
+      System.out.println("MyBufferConsumer::handleBuffer() called! Writing: " + len + " bytes.");
       try {
         this.buffer.copyFromHostBuffer(offset, src, 0, len);
         offset += len;

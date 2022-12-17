@@ -61,6 +61,7 @@ constexpr long MINIMUM_WRITE_BUFFER_SIZE = 10 * 1024 * 1024; // 10 MB
 class jni_writer_data_sink final : public cudf::io::data_sink {
 public:
   explicit jni_writer_data_sink(JNIEnv *env, jobject callback) {
+    std::cout << "CALEB: jni_writer_data_sink::jni_writer_data_sink()!!\n";
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
     }
@@ -98,6 +99,7 @@ public:
   }
 
   void host_write(void const *data, size_t size) override {
+    std::cout << "CALEB: jni_writer_data_sink::host_write(" << size << " bytes)!!\n";
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
     long left_to_copy = static_cast<long>(size);
     const char *copy_from = static_cast<const char *>(data);
@@ -123,6 +125,7 @@ public:
   bool supports_device_write() const override { return true; }
 
   void device_write(void const *gpu_data, size_t size, rmm::cuda_stream_view stream) override {
+    std::cout << "CALEB: jni_writer_data_sink::device_write(" << size << " bytes)!!\n";
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
     long left_to_copy = static_cast<long>(size);
     const char *copy_from = static_cast<const char *>(gpu_data);
@@ -189,6 +192,7 @@ private:
   }
 
   void handle_buffer(JNIEnv *env, jobject buffer, jlong len) {
+    std::cout << "CALEB: jni_writer_data_sink::handle_buffer(" << len << " bytes)!!\n";
     env->CallVoidMethod(callback, handle_buffer_method, buffer, len);
     if (env->ExceptionCheck()) {
       throw std::runtime_error("handleBuffer threw an exception");
@@ -1390,7 +1394,8 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
   try {
     cudf::jni::auto_set_device(env);
 
-    auto data_sink = std::make_unique<cudf::jni::jni_writer_data_sink>(env, j_buffer);
+    // auto data_sink = std::make_unique<cudf::jni::jni_writer_data_sink>(env, j_buffer);
+    auto data_sink = new cudf::jni::jni_writer_data_sink{env, j_buffer};
 
     auto const table = reinterpret_cast<cudf::table_view *>(j_table_handle);
     auto const n_column_names = cudf::jni::native_jstringArray{env, j_column_names};
@@ -1398,7 +1403,8 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
 
     auto const line_terminator = cudf::jni::native_jstring{env, j_row_delimiter};
     auto const na_rep = cudf::jni::native_jstring{env, j_null_value};
-    auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{data_sink.get()}, *table)
+    // auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{data_sink.get()}, *table)
+    auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{data_sink}, *table)
                         .names(column_names)
                         .include_header(static_cast<bool>(include_header))
                         .line_terminator(line_terminator.get())
@@ -1406,6 +1412,15 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
                         .na_rep(na_rep.get());
 
     cudf::io::write_csv(options.build());
+
+    std::cout << "CALEB: Examining what was written to the buffer: " 
+              << data_sink->bytes_written() << " bytes." 
+              << std::endl;
+
+    data_sink->flush();
+
+
+
   }
   CATCH_STD(env, );
 }

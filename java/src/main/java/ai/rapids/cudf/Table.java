@@ -893,7 +893,6 @@ public final class Table implements AutoCloseable {
 
   public void writeCSVToBuffer(CSVWriterOptions options, HostBufferConsumer bufferConsumer)
   {
-    testBoolNative(options.getIncludeHeader());
     writeCSVToBuffer(nativeHandle, 
                     options.getColumnNames(), 
                     options.getIncludeHeader(), 
