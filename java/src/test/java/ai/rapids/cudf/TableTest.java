@@ -628,13 +628,14 @@ public class TableTest extends CudfTestBase {
                                                .withIncludeHeader(false)
                                                .withFieldDelimiter((byte)'\u0001')
                                                .withRowDelimiter("\n")
+                                               .withNullValue("\\N")
                                                .build();
     try (Table inputTable 
           = new Table.TestBuilder()
-              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-              .column(0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
-              .column(false, true, false, true, false, true, false, true, false, true)
-              .column("All", "the", "leaves", "are", "brown", "and", "the", "sky", "is", "grey")
+              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, null)
+              .column(0.0, 1.0, 2.0, 3.0, 4.0, null, 6.0, 7.0, 8.0, 9.0)
+              .column(false, true, null, true, false, true, false, true, false, true)
+              .column("All", "the", "leaves", "are", "brown", "and", "the", "sky", "is", null)
               .build();
           MyBufferConsumer consumer = new MyBufferConsumer()) {
       inputTable.writeCSVToBuffer(writeOptions, consumer);
@@ -649,6 +650,7 @@ public class TableTest extends CudfTestBase {
                                          .includeColumn("str")
                                          .hasHeader(false)
                                          .withDelim('\u0001')
+                                         .withNullValue("\\N")
                                          .build();
       try (Table readTable = Table.readCSV(schema, readOptions, consumer.buffer, 0, consumer.offset);
            Table expected  = Table.concatenate(inputTable, inputTable, inputTable)) {
