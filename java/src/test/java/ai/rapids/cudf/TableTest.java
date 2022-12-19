@@ -639,11 +639,13 @@ public class TableTest extends CudfTestBase {
               .build();
           MyBufferConsumer consumer = new MyBufferConsumer()) {
       inputTable.writeCSVToBuffer(writeOptions, consumer);
+      inputTable.writeCSVToBuffer(writeOptions, consumer);
+      inputTable.writeCSVToBuffer(writeOptions, consumer);
 
       System.out.println("CALEB: TableTest: Buffer offset: " + consumer.offset);
       ByteBuffer buff = consumer.buffer.asByteBuffer(0, Long.valueOf(consumer.offset).intValue());
       System.out.println("CALEB: Buffer: " + buff);
-      
+
       // Read back.
       CSVOptions readOptions = CSVOptions.builder()
                                          .includeColumn("i")
@@ -653,8 +655,10 @@ public class TableTest extends CudfTestBase {
                                          .hasHeader(false)
                                          .withDelim('\u0001')
                                          .build();
-      try (Table readTable = Table.readCSV(schema, readOptions, consumer.buffer, 0, consumer.offset)) {
-        assertTablesAreEqual(inputTable, readTable);
+      try (Table readTable = Table.readCSV(schema, readOptions, consumer.buffer, 0, consumer.offset);
+           Table expected  = Table.concatenate(inputTable, inputTable, inputTable)) {
+        System.out.println("CALEB: Read table size: " + readTable.getRowCount());
+        assertTablesAreEqual(expected, readTable);
       }
     }
   }

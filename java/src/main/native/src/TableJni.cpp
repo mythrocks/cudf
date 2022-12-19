@@ -160,6 +160,7 @@ public:
   }
 
   void flush() override {
+    std::cout << "CALEB: jni_writer_data_sink::flush()!!\n";
     if (current_buffer_written > 0) {
       JNIEnv *env = cudf::jni::get_jni_env(jvm);
       handle_buffer(env, current_buffer, current_buffer_written);
@@ -179,6 +180,7 @@ public:
 
 private:
   void rotate_buffer(JNIEnv *env) {
+    std::cout << "CALEB: jni_writer_data_sink::rotate_buffer()!!\n";
     if (current_buffer != nullptr) {
       handle_buffer(env, current_buffer, current_buffer_written);
       env->DeleteGlobalRef(current_buffer);
