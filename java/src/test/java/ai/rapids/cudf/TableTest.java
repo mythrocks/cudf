@@ -663,21 +663,6 @@ public class TableTest extends CudfTestBase {
     }
   }
 
-
-
-  @Test
-  void testBool()
-  {
-    try (Table inputTable 
-          = new Table.TestBuilder()
-              .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-              .build()) {
-      inputTable.testBool(false);
-      inputTable.testBool(true);
-    }
-
-  }
-
   @Test
   void testReadParquet() {
     ParquetOptions opts = ParquetOptions.builder()

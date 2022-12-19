@@ -1329,12 +1329,6 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_readCSV(
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_testBoolNative(JNIEnv *env, jclass, jboolean boo)
-{
-  std::cout << "CALEB: Native: boo == " <<  static_cast<int>(boo) << std::endl; 
-  std::cout << "CALEB: Native: As bool: boo == " << std::boolalpha << static_cast<bool>(boo) << std::endl; 
-}
-
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToFile(JNIEnv *env,
                                                                 jclass,
                                                                 jlong j_table_handle,
@@ -1396,8 +1390,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
   try {
     cudf::jni::auto_set_device(env);
 
-    // auto data_sink = std::make_unique<cudf::jni::jni_writer_data_sink>(env, j_buffer);
-    auto data_sink = new cudf::jni::jni_writer_data_sink{env, j_buffer};
+    auto data_sink = cudf::jni::jni_writer_data_sink{env, j_buffer}; 
 
     auto const table = reinterpret_cast<cudf::table_view *>(j_table_handle);
     auto const n_column_names = cudf::jni::native_jstringArray{env, j_column_names};
@@ -1405,8 +1398,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
 
     auto const line_terminator = cudf::jni::native_jstring{env, j_row_delimiter};
     auto const na_rep = cudf::jni::native_jstring{env, j_null_value};
-    // auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{data_sink.get()}, *table)
-    auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{data_sink}, *table)
+    auto options = cudf::io::csv_writer_options::builder(cudf::io::sink_info{&data_sink}, *table)
                         .names(column_names)
                         .include_header(static_cast<bool>(include_header))
                         .line_terminator(line_terminator.get())
@@ -1414,15 +1406,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_writeCSVToBuffer(JNIEnv *env,
                         .na_rep(na_rep.get());
 
     cudf::io::write_csv(options.build());
-
-    std::cout << "CALEB: Examining what was written to the buffer: " 
-              << data_sink->bytes_written() << " bytes." 
-              << std::endl;
-
-    data_sink->flush();
-
-
-
+    data_sink.flush();
   }
   CATCH_STD(env, );
 }

@@ -857,13 +857,6 @@ public final class Table implements AutoCloseable {
         opts.getFalseValues()));
   }
 
-  private static native void testBoolNative(boolean boo) throws CudfException;
-
-  public void testBool(boolean boo)
-  {
-    Table.testBoolNative(boo);
-  }
-
   private static native void writeCSVToFile(long table,
                                             String[] columnNames,
                                             boolean includeHeader,
