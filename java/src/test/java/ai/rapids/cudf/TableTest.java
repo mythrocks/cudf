@@ -626,7 +626,7 @@ public class TableTest extends CudfTestBase {
     CSVWriterOptions writeOptions = CSVWriterOptions.builder()
                                                .withColumnNames(schema.getColumnNames())
                                                .withIncludeHeader(false)
-                                               .withFieldDelimiter((byte)'\u0001')
+                                               .withFieldDelimiter((byte)fieldDelim)
                                                .withRowDelimiter("\n")
                                                .withNullValue("\\N")
                                                .build();
@@ -634,7 +634,7 @@ public class TableTest extends CudfTestBase {
           = new Table.TestBuilder()
               .column(0, 1, 2, 3, 4, 5, 6, 7, 8, null)
               .column(0.0, 1.0, 2.0, 3.0, 4.0, null, 6.0, 7.0, 8.0, 9.0)
-              .column(false, true, null, true, false, true, false, true, false, true)
+              .column(false, true, null, true, false, true, null, true, false, true)
               .column("All", "the", "leaves", "are", "brown", "and", "the", "sky", "is", null)
               .build();
           MyBufferConsumer consumer = new MyBufferConsumer()) {
@@ -649,7 +649,7 @@ public class TableTest extends CudfTestBase {
                                          .includeColumn("b")
                                          .includeColumn("str")
                                          .hasHeader(false)
-                                         .withDelim('\u0001')
+                                         .withDelim(fieldDelim)
                                          .withNullValue("\\N")
                                          .build();
       try (Table readTable = Table.readCSV(schema, readOptions, consumer.buffer, 0, consumer.offset);
