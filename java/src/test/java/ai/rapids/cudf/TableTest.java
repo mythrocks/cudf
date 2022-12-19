@@ -576,7 +576,7 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
-  void testWriteCSVToFile() throws IOException {
+  void testWriteCSVToFileBasic() throws IOException {
     File outputFile = File.createTempFile("testWriteCSVToFile", ".csv");
     Schema schema = Schema.builder()
                           .column(DType.INT32, "i")
@@ -616,8 +616,7 @@ public class TableTest extends CudfTestBase {
     }
   }
 
-  @Test
-  void testWriteCSVToBuffer() throws IOException {
+  private void testWriteCSVToBufferBasicImpl(char fieldDelim) throws IOException {
     Schema schema = Schema.builder()
                           .column(DType.INT32, "i")
                           .column(DType.FLOAT64, "f")
@@ -642,10 +641,6 @@ public class TableTest extends CudfTestBase {
       inputTable.writeCSVToBuffer(writeOptions, consumer);
       inputTable.writeCSVToBuffer(writeOptions, consumer);
 
-      System.out.println("CALEB: TableTest: Buffer offset: " + consumer.offset);
-      ByteBuffer buff = consumer.buffer.asByteBuffer(0, Long.valueOf(consumer.offset).intValue());
-      System.out.println("CALEB: Buffer: " + buff);
-
       // Read back.
       CSVOptions readOptions = CSVOptions.builder()
                                          .includeColumn("i")
@@ -657,10 +652,15 @@ public class TableTest extends CudfTestBase {
                                          .build();
       try (Table readTable = Table.readCSV(schema, readOptions, consumer.buffer, 0, consumer.offset);
            Table expected  = Table.concatenate(inputTable, inputTable, inputTable)) {
-        System.out.println("CALEB: Read table size: " + readTable.getRowCount());
         assertTablesAreEqual(expected, readTable);
       }
     }
+  }
+
+  @Test
+  void testWriteCSVToBufferBasic() throws IOException {
+    testWriteCSVToBufferBasicImpl(',');
+    testWriteCSVToBufferBasicImpl('\u0001');
   }
 
   @Test
