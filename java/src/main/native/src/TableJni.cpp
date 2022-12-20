@@ -1,4 +1,5 @@
 /*
+
  * Copyright (c) 2019-2022, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,7 +62,6 @@ constexpr long MINIMUM_WRITE_BUFFER_SIZE = 10 * 1024 * 1024; // 10 MB
 class jni_writer_data_sink final : public cudf::io::data_sink {
 public:
   explicit jni_writer_data_sink(JNIEnv *env, jobject callback) {
-    std::cout << "CALEB: jni_writer_data_sink::jni_writer_data_sink()!!\n";
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
     }
@@ -99,7 +99,6 @@ public:
   }
 
   void host_write(void const *data, size_t size) override {
-    std::cout << "CALEB: jni_writer_data_sink::host_write(" << size << " bytes)!!\n";
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
     long left_to_copy = static_cast<long>(size);
     const char *copy_from = static_cast<const char *>(data);
@@ -125,7 +124,6 @@ public:
   bool supports_device_write() const override { return true; }
 
   void device_write(void const *gpu_data, size_t size, rmm::cuda_stream_view stream) override {
-    std::cout << "CALEB: jni_writer_data_sink::device_write(" << size << " bytes)!!\n";
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
     long left_to_copy = static_cast<long>(size);
     const char *copy_from = static_cast<const char *>(gpu_data);
@@ -160,7 +158,6 @@ public:
   }
 
   void flush() override {
-    std::cout << "CALEB: jni_writer_data_sink::flush()!!\n";
     if (current_buffer_written > 0) {
       JNIEnv *env = cudf::jni::get_jni_env(jvm);
       handle_buffer(env, current_buffer, current_buffer_written);
@@ -180,7 +177,6 @@ public:
 
 private:
   void rotate_buffer(JNIEnv *env) {
-    std::cout << "CALEB: jni_writer_data_sink::rotate_buffer()!!\n";
     if (current_buffer != nullptr) {
       handle_buffer(env, current_buffer, current_buffer_written);
       env->DeleteGlobalRef(current_buffer);
@@ -194,7 +190,6 @@ private:
   }
 
   void handle_buffer(JNIEnv *env, jobject buffer, jlong len) {
-    std::cout << "CALEB: jni_writer_data_sink::handle_buffer(" << len << " bytes)!!\n";
     env->CallVoidMethod(callback, handle_buffer_method, buffer, len);
     if (env->ExceptionCheck()) {
       throw std::runtime_error("handleBuffer threw an exception");
