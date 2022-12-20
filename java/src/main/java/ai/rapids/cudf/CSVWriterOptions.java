@@ -24,7 +24,6 @@ import java.util.List;
 
 public class CSVWriterOptions {
   
-  // private final Table table;
   private String[] columnNames;
   private Boolean includeHeader = false;
   private String rowDelimiter = "\n";
@@ -32,17 +31,12 @@ public class CSVWriterOptions {
   private String nullValue = "\\N";
 
   private CSVWriterOptions(Builder builder) {
-    // this.table = builder.table;
     this.columnNames = builder.columnNames.toArray(new String[builder.columnNames.size()]);
     this.nullValue = builder.nullValue;
     this.includeHeader = builder.includeHeader;
     this.fieldDelimiter = builder.fieldDelimiter;
     this.rowDelimiter = builder.rowDelimiter;
   }
-
-  // public Table getTable() {
-  //   return table;
-  // }
 
   public String[] getColumnNames() {
     return columnNames;
@@ -70,7 +64,6 @@ public class CSVWriterOptions {
 
   public static class Builder {
 
-    // private Table table;
     private List<String> columnNames = Collections.emptyList();
     private Boolean includeHeader = false;
     private String rowDelimiter = "\n";
@@ -80,11 +73,6 @@ public class CSVWriterOptions {
     public CSVWriterOptions build() {
       return new CSVWriterOptions(this);
     }
-
-    // public Builder withTable(Table table) {
-    //   this.table = table;
-    //   return this;
-    // }
 
     public Builder withColumnNames(List<String> columnNames) {
       this.columnNames = columnNames;
