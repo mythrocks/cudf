@@ -576,7 +576,7 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
-  void testWriteCSVToFileBasic() throws IOException {
+  void testWriteCSVToFile() throws IOException {
     File outputFile = File.createTempFile("testWriteCSVToFile", ".csv");
     Schema schema = Schema.builder()
                           .column(DType.INT32, "i")
@@ -616,7 +616,7 @@ public class TableTest extends CudfTestBase {
     }
   }
 
-  private void testWriteCSVToBufferBasicImpl(char fieldDelim) throws IOException {
+  private void testWriteCSVToBufferImpl(char fieldDelim) throws IOException {
     Schema schema = Schema.builder()
                           .column(DType.INT32, "i")
                           .column(DType.FLOAT64, "f")
@@ -660,9 +660,9 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
-  void testWriteCSVToBufferBasic() throws IOException {
-    testWriteCSVToBufferBasicImpl(',');
-    testWriteCSVToBufferBasicImpl('\u0001');
+  void testWriteCSVToBuffer() throws IOException {
+    testWriteCSVToBufferImpl(',');
+    testWriteCSVToBufferImpl('\u0001');
   }
 
   @Test
