@@ -7580,12 +7580,10 @@ public class TableTest extends CudfTestBase {
 
     public MyBufferConsumer() {
       buffer = HostMemoryBuffer.allocate(10 * 1024 * 1024);
-      System.out.println("MyBufferConsumer::ctor()!! Alloced address: " + buffer.getAddress());
     }
 
     @Override
     public void handleBuffer(HostMemoryBuffer src, long len) {
-      System.out.println("MyBufferConsumer::handleBuffer() called! Writing: " + len + " bytes.");
       try {
         this.buffer.copyFromHostBuffer(offset, src, 0, len);
         offset += len;
