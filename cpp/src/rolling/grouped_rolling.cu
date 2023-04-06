@@ -324,11 +324,12 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
                                          rmm::mr::device_memory_resource* mr)
 {
   auto [h_nulls_begin_idx, h_nulls_end_idx] = get_null_bounds_for_orderby_column(orderby_column);
+  auto d_orderby_cv_ptr = cudf::column_device_view::create(orderby_column, stream);
 
   auto preceding_calculator =
     [nulls_begin_idx = h_nulls_begin_idx,
      nulls_end_idx   = h_nulls_end_idx,
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby = d_orderby_cv_ptr->begin<T>(),
      preceding_window,
      preceding_window_is_unbounded] __device__(size_type idx) -> size_type {
     if (preceding_window_is_unbounded) {
@@ -348,7 +349,16 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
     // Otherwise, NULLS LAST ordering. Start at 0.
     auto group_start      = nulls_begin_idx == 0 ? nulls_end_idx : 0;
-    auto lowest_in_window = subtract_safe(d_orderby[idx], preceding_window);
+
+    auto lowest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return subtract_safe(d_orderby[idx], preceding_window);
+      }
+    }();
 
     return ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
                                                     d_orderby + group_start,
@@ -363,7 +373,7 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     [nulls_begin_idx = h_nulls_begin_idx,
      nulls_end_idx   = h_nulls_end_idx,
      num_rows        = input.size(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby    = d_orderby_cv_ptr->begin<T>(),
      following_window,
      following_window_is_unbounded] __device__(size_type idx) -> size_type {
     if (following_window_is_unbounded) { return num_rows - idx - 1; }
@@ -380,7 +390,15 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     // Otherwise, NULLS LAST ordering. End at nulls_begin_idx.
 
     auto group_end         = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
-    auto highest_in_window = add_safe(d_orderby[idx], following_window);
+    auto highest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return add_safe(d_orderby[idx], following_window);
+      }
+    }();
 
     return (thrust::upper_bound(
               thrust::seq, d_orderby + idx, d_orderby + group_end, highest_in_window) -
@@ -489,11 +507,12 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
 {
   auto [null_start, null_end] =
     get_null_bounds_for_orderby_column(orderby_column, group_offsets, stream);
+  auto d_orderby_cv_ptr = cudf::column_device_view::create(orderby_column, stream);
 
   auto preceding_calculator =
     [d_group_offsets = group_offsets.data(),
      d_group_labels  = group_labels.data(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby    = d_orderby_cv_ptr->begin<T>(),
      d_nulls_begin   = null_start.data(),
      d_nulls_end     = null_end.data(),
      preceding_window,
@@ -519,7 +538,15 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
     auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
-    auto lowest_in_window = subtract_safe(d_orderby[idx], preceding_window);
+    auto lowest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return subtract_safe(d_orderby[idx], preceding_window);
+      }
+    }();
 
     return ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
                                                     d_orderby + search_start,
@@ -533,7 +560,7 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
   auto following_calculator =
     [d_group_offsets = group_offsets.data(),
      d_group_labels  = group_labels.data(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby = d_orderby_cv_ptr->begin<T>(),
      d_nulls_begin   = null_start.data(),
      d_nulls_end     = null_end.data(),
      following_window,
@@ -561,7 +588,15 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
     auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
-    auto highest_in_window = add_safe(d_orderby[idx], following_window);
+    auto highest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return add_safe(d_orderby[idx], following_window);
+      }
+    }();
 
     return (thrust::upper_bound(
               thrust::seq, d_orderby + idx, d_orderby + search_end, highest_in_window) -
@@ -592,11 +627,11 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
                                           rmm::mr::device_memory_resource* mr)
 {
   auto [h_nulls_begin_idx, h_nulls_end_idx] = get_null_bounds_for_orderby_column(orderby_column);
-
+  auto d_orderby_cv_ptr = cudf::column_device_view::create(orderby_column, stream);
   auto preceding_calculator =
     [nulls_begin_idx = h_nulls_begin_idx,
      nulls_end_idx   = h_nulls_end_idx,
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby    = d_orderby_cv_ptr->begin<T>(),
      preceding_window,
      preceding_window_is_unbounded] __device__(size_type idx) -> size_type {
     if (preceding_window_is_unbounded) {
@@ -616,7 +651,16 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     //  2. NO NULLS: Binary search starts at 0 (also nulls_end_idx).
     // Otherwise, NULLS LAST ordering. Start at 0.
     auto group_start       = nulls_begin_idx == 0 ? nulls_end_idx : 0;
-    auto highest_in_window = add_safe(d_orderby[idx], preceding_window);
+    auto highest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>)
+      {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return add_safe(d_orderby[idx], preceding_window);
+      }
+    }();
 
     return ((d_orderby + idx) -
             thrust::lower_bound(thrust::seq,
@@ -633,7 +677,7 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     [nulls_begin_idx = h_nulls_begin_idx,
      nulls_end_idx   = h_nulls_end_idx,
      num_rows        = input.size(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby    = d_orderby_cv_ptr->begin<T>(),
      following_window,
      following_window_is_unbounded] __device__(size_type idx) -> size_type {
     if (following_window_is_unbounded) { return (num_rows - idx) - 1; }
@@ -650,7 +694,15 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     // Otherwise, NULLS LAST ordering: End at nulls_begin_idx.
 
     auto group_end        = nulls_begin_idx == 0 ? num_rows : nulls_begin_idx;
-    auto lowest_in_window = subtract_safe(d_orderby[idx], following_window);
+    auto lowest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return subtract_safe(d_orderby[idx], following_window);
+      }
+    }();
 
     return (thrust::upper_bound(thrust::seq,
                                 d_orderby + idx,
@@ -684,11 +736,12 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
 {
   auto [null_start, null_end] =
     get_null_bounds_for_orderby_column(orderby_column, group_offsets, stream);
+  auto d_orderby_cv_ptr = cudf::column_device_view::create(orderby_column, stream);
 
   auto preceding_calculator =
     [d_group_offsets = group_offsets.data(),
      d_group_labels  = group_labels.data(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby = d_orderby_cv_ptr->begin<T>(),
      d_nulls_begin   = null_start.data(),
      d_nulls_end     = null_end.data(),
      preceding_window,
@@ -714,7 +767,15 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     // Otherwise, NULLS LAST ordering. Search must start at nulls group_start.
     auto search_start = nulls_begin == group_start ? nulls_end : group_start;
 
-    auto highest_in_window = add_safe(d_orderby[idx], preceding_window);
+    auto highest_in_window = [&] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return add_safe(d_orderby[idx], preceding_window);
+      }
+    }();
 
     return ((d_orderby + idx) -
             thrust::lower_bound(thrust::seq,
@@ -730,7 +791,7 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
   auto following_calculator =
     [d_group_offsets = group_offsets.data(),
      d_group_labels  = group_labels.data(),
-     d_orderby       = orderby_column.data<T>(),
+     d_orderby = d_orderby_cv_ptr->begin<T>(),
      d_nulls_begin   = null_start.data(),
      d_nulls_end     = null_end.data(),
      following_window,
@@ -757,7 +818,15 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     // Otherwise, NULLS LAST ordering. Search ends at nulls_begin.
     auto search_end = nulls_begin == group_start ? group_end : nulls_begin;
 
-    auto lowest_in_window = subtract_safe(d_orderby[idx], following_window);
+    auto lowest_in_window = [=] {
+      if constexpr (std::is_same_v<T, cudf::string_view>) {
+//        return d_orderby_cv.element<cudf::string_view>(idx);
+        return d_orderby[idx];
+      }
+      else {
+        return subtract_safe(d_orderby[idx], following_window);
+      }
+    }();
 
     return (thrust::upper_bound(thrust::seq,
                                 d_orderby + idx,
@@ -792,10 +861,26 @@ std::unique_ptr<column> grouped_range_rolling_window_impl(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  auto preceding_value =
-    detail::range_comparable_value<OrderByT>(preceding_window, orderby_column.type(), stream);
-  auto following_value =
-    detail::range_comparable_value<OrderByT>(following_window, orderby_column.type(), stream);
+  auto [preceding_value, following_value] = [preceding_window, following_window, type = orderby_column.type(), stream] {
+    if constexpr (std::is_same_v<OrderByT, cudf::string_view>)
+    {
+      // Range queries on STRING order-by columns cannot use preceding/following values
+      // (because string intervals do not make sense).
+      CUDF_EXPECTS(preceding_window.is_unbounded() || preceding_window.is_current_row(),
+                   "Range queries on STRING columns must be either UNBOUNDED, or bounded by the value "
+                   "of the current row.");
+      CUDF_EXPECTS(following_window.is_unbounded() || following_window.is_current_row(),
+                   "Range queries on STRING columns must be either UNBOUNDED, or bounded by the value "
+                   "of the current row.");
+      return std::pair{cudf::string_view::min(), cudf::string_view::min()};
+    }
+    else {
+      return std::pair{
+          detail::range_comparable_value<OrderByT>(preceding_window, type, stream),
+          detail::range_comparable_value<OrderByT>(following_window, type, stream)
+      };
+    }
+  }();
 
   if (order_of_orderby_column == cudf::order::ASCENDING) {
     return group_offsets.is_empty() ? range_window_ASC(input,
