@@ -3981,10 +3981,11 @@ public final class Table implements AutoCloseable {
           case DECIMAL32:
           case DECIMAL64:
           case DECIMAL128:
+          case STRING:
             break;
           default:
             throw new IllegalArgumentException("Expected range-based window orderBy's " +
-                "type: integral (Boolean-exclusive), decimal, and timestamp");
+                "type: integral (Boolean-exclusive), decimal, timestamp, and string");
         }
 
         ColumnWindowOps ops = groupedOps.computeIfAbsent(agg.getColumnIndex(), (idx) -> new ColumnWindowOps());
