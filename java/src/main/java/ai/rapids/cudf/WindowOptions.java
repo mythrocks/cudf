@@ -27,13 +27,19 @@ public class WindowOptions implements AutoCloseable {
 
   /**
    * Extent of (range) window bounds.
-   * Analogous to cudf::range_window_bounds::extent.
+   * Analogous to cudf::range_window_bounds::extent_type.
    */
-  enum BoundsExtent {
-    CURRENT_ROW, // Bounds defined as the first/last row that matches the current row.
-    BOUNDED,     // Bounds defined as the first/last row that falls within
-                 // a specified range from the current row.
-    UNBOUNDED    // Bounds stretching to the first/last row in the entire group.
+  enum RangeExtentType {
+    CURRENT_ROW(0), // Bounds defined as the first/last row that matches the current row.
+    BOUNDED(1),     // Bounds defined as the first/last row that falls within
+                    // a specified range from the current row.
+    UNBOUNDED(2);   // Bounds stretching to the first/last row in the entire group.
+
+    public final int nominalValue;
+
+    RangeExtentType(int n) {
+      this.nominalValue = n;
+    }
   }
 
   private final int minPeriods;
@@ -44,8 +50,10 @@ public class WindowOptions implements AutoCloseable {
   private final int orderByColumnIndex;
   private final boolean orderByOrderAscending;
   private final FrameType frameType;
-  private final BoundsExtent precedingBoundsExtent ; // = BoundsExtent.BOUNDED;
-  private final BoundsExtent followingBoundsExtent ; // = BoundsExtent.BOUNDED;
+  private final RangeExtentType precedingBoundsExtent;
+  private final RangeExtentType followingBoundsExtent;
+//  private RangeExtentType precedingBoundsExtent = RangeExtentType.BOUNDED;
+//  private RangeExtentType followingBoundsExtent = RangeExtentType.BOUNDED;
 
   private WindowOptions(Builder builder) {
     this.minPeriods = builder.minPeriods;
@@ -149,13 +157,16 @@ public class WindowOptions implements AutoCloseable {
 
   boolean isOrderByOrderAscending() { return this.orderByOrderAscending; }
 
-  boolean isUnboundedPreceding() { return this.precedingBoundsExtent == BoundsExtent.UNBOUNDED; }
+  boolean isUnboundedPreceding() { return this.precedingBoundsExtent == RangeExtentType.UNBOUNDED; }
 
-  boolean isUnboundedFollowing() { return this.followingBoundsExtent == BoundsExtent.UNBOUNDED; }
+  boolean isUnboundedFollowing() { return this.followingBoundsExtent == RangeExtentType.UNBOUNDED; }
 
-  boolean isCurrentRowPreceding() { return this.precedingBoundsExtent == BoundsExtent.CURRENT_ROW; }
+  boolean isCurrentRowPreceding() { return this.precedingBoundsExtent == RangeExtentType.CURRENT_ROW; }
 
-  boolean isCurrentRowFollowing() { return this.followingBoundsExtent == BoundsExtent.CURRENT_ROW; }
+  boolean isCurrentRowFollowing() { return this.followingBoundsExtent == RangeExtentType.CURRENT_ROW; }
+
+  RangeExtentType getPrecedingBoundsExtent() { return this.precedingBoundsExtent; }
+  RangeExtentType getFollowingBoundsExtent() { return this.followingBoundsExtent; }
 
   FrameType getFrameType() { return frameType; }
 
@@ -168,8 +179,8 @@ public class WindowOptions implements AutoCloseable {
     private ColumnVector followingCol = null;
     private int orderByColumnIndex = -1;
     private boolean orderByOrderAscending = true;
-    private BoundsExtent precedingBoundsExtent = BoundsExtent.BOUNDED;
-    private BoundsExtent followingBoundsExtent = BoundsExtent.BOUNDED;
+    private RangeExtentType precedingBoundsExtent = RangeExtentType.BOUNDED;
+    private RangeExtentType followingBoundsExtent = RangeExtentType.BOUNDED;
 
     /**
      * Set the minimum number of observation required to evaluate an element.  If there are not
@@ -199,10 +210,10 @@ public class WindowOptions implements AutoCloseable {
       if (followingCol == null || followingCol.hasNulls()) {
         throw new IllegalArgumentException("following cannot be null or have nulls");
       }
-      if (precedingBoundsExtent != BoundsExtent.BOUNDED || precedingScalar != null) {
+      if (precedingBoundsExtent != RangeExtentType.BOUNDED || precedingScalar != null) {
         throw new IllegalStateException("preceding has already been set a different way");
       }
-      if (followingBoundsExtent != BoundsExtent.BOUNDED || followingScalar != null) {
+      if (followingBoundsExtent != RangeExtentType.BOUNDED || followingScalar != null) {
         throw new IllegalStateException("following has already been set a different way");
       }
       this.precedingCol = precedingCol;
@@ -264,7 +275,7 @@ public class WindowOptions implements AutoCloseable {
       if (precedingCol != null || precedingScalar != null) {
         throw new IllegalStateException("preceding has already been set a different way");
       }
-      this.precedingBoundsExtent = BoundsExtent.CURRENT_ROW;
+      this.precedingBoundsExtent = RangeExtentType.CURRENT_ROW;
       return this;
     }
 
@@ -272,7 +283,7 @@ public class WindowOptions implements AutoCloseable {
       if (followingCol != null || followingScalar != null) {
         throw new IllegalStateException("following has already been set a different way");
       }
-      this.followingBoundsExtent = BoundsExtent.CURRENT_ROW;
+      this.followingBoundsExtent = RangeExtentType.CURRENT_ROW;
       return this;
     }
 
@@ -280,7 +291,7 @@ public class WindowOptions implements AutoCloseable {
       if (precedingCol != null || precedingScalar != null) {
         throw new IllegalStateException("preceding has already been set a different way");
       }
-      this.precedingBoundsExtent = BoundsExtent.UNBOUNDED;
+      this.precedingBoundsExtent = RangeExtentType.UNBOUNDED;
       return this;
     }
 
@@ -288,7 +299,7 @@ public class WindowOptions implements AutoCloseable {
       if (followingCol != null || followingScalar != null) {
         throw new IllegalStateException("following has already been set a different way");
       }
-      this.followingBoundsExtent = BoundsExtent.UNBOUNDED;
+      this.followingBoundsExtent = RangeExtentType.UNBOUNDED;
       return this;
     }
 
@@ -300,7 +311,7 @@ public class WindowOptions implements AutoCloseable {
       if (preceding == null || !preceding.isValid()) {
         throw new IllegalArgumentException("preceding cannot be null");
       }
-      if (precedingBoundsExtent != BoundsExtent.BOUNDED || precedingCol != null) {
+      if (precedingBoundsExtent != RangeExtentType.BOUNDED || precedingCol != null) {
         throw new IllegalStateException("preceding has already been set a different way");
       }
       this.precedingScalar = preceding;
@@ -315,7 +326,7 @@ public class WindowOptions implements AutoCloseable {
       if (following == null || !following.isValid()) {
         throw new IllegalArgumentException("following cannot be null");
       }
-      if (followingBoundsExtent != BoundsExtent.BOUNDED || followingCol != null) {
+      if (followingBoundsExtent != RangeExtentType.BOUNDED || followingCol != null) {
         throw new IllegalStateException("following has already been set a different way");
       }
       this.followingScalar = following;
