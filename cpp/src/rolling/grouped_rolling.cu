@@ -228,6 +228,11 @@ namespace {
 template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T add_safe(T const& value, T const& delta)
 {
+  if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
+    if (std::isinf(value)) {
+      return value;
+    }
+  }
   // delta >= 0.
   return (value < 0 || (cuda::std::numeric_limits<T>::max() - value) >= delta)
            ? (value + delta)
@@ -255,6 +260,11 @@ __device__ T add_safe(T const& value, T const& delta)
 template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T subtract_safe(T const& value, T const& delta)
 {
+  if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
+    if (std::isinf(value)) {
+      return value;
+    }
+  }
   // delta >= 0;
   return (value >= 0 || (value - cuda::std::numeric_limits<T>::lowest()) >= delta)
            ? (value - delta)
@@ -609,11 +619,15 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     auto const search_start     = nulls_begin == group_start ? nulls_end : group_start;
     auto const lowest_in_window = compute_lowest_in_window(d_orderby, idx, preceding_window);
 
-    return ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
+    auto const preceding = ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
                                                     d_orderby + search_start,
                                                     d_orderby + idx,
                                                     lowest_in_window)) +
            1;  // Add 1, for `preceding` to account for current row.
+    if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
+      printf("For index %d, preceding == %ld\n", idx, preceding);
+    }
+    return preceding;
   };
 
   auto const preceding_column = expand_to_column(preceding_calculator, input.size(), stream);
@@ -653,10 +667,15 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     auto const search_end        = nulls_begin == group_start ? group_end : nulls_begin;
     auto const highest_in_window = compute_highest_in_window(d_orderby, idx, following_window);
 
-    return (thrust::upper_bound(
+    auto const following = (thrust::upper_bound(
               thrust::seq, d_orderby + idx, d_orderby + search_end, highest_in_window) -
             (d_orderby + idx)) -
            1;
+
+    if constexpr (std::is_same_v<T, float>) {
+      printf("For index %d, following == %ld, because highest_in_window == %f\n", idx, following, highest_in_window);
+    }
+    return following;
   };
 
   auto const following_column = expand_to_column(following_calculator, input.size(), stream);
