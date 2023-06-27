@@ -229,7 +229,7 @@ template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T add_safe(T const& value, T const& delta)
 {
   if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
-    if (std::isinf(value)) {
+    if (std::isinf(value) or std::isnan(value)) {
       return value;
     }
   }
@@ -261,7 +261,7 @@ template <typename T, CUDF_ENABLE_IF(cuda::std::numeric_limits<T>::is_signed)>
 __device__ T subtract_safe(T const& value, T const& delta)
 {
   if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
-    if (std::isinf(value)) {
+    if (std::isinf(value) or std::isnan(value)) {
       return value;
     }
   }
@@ -398,6 +398,24 @@ std::unique_ptr<column> expand_to_column(Calculator const& calc,
   return window_column;
 }
 
+struct nan_aware_less
+{
+  template <typename T, CUDF_ENABLE_IF(not cudf::is_floating_point<T>())>
+  __device__ bool operator()(T const& lhs, T const& rhs) const
+  {
+    return thrust::less<T>{}(lhs, rhs);
+  }
+
+  template <typename T, CUDF_ENABLE_IF(cudf::is_floating_point<T>())>
+  __device__ bool operator()(T const& lhs, T const& rhs) const
+  {
+    if (std::isnan(lhs)) {
+      return !std::isnan(rhs);
+    }
+    return std::isnan(rhs) ? true : lhs < rhs;
+  }
+};
+
 /// Range window computation, with
 ///   1. no grouping keys specified
 ///   2. rows in ASCENDING order.
@@ -446,7 +464,8 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     return ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
                                                     d_orderby + group_start,
                                                     d_orderby + idx,
-                                                    lowest_in_window)) +
+                                                    lowest_in_window,
+                                                    nan_aware_less{})) +
            1;  // Add 1, for `preceding` to account for current row.
   };
 
@@ -477,7 +496,7 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     auto const highest_in_window = compute_highest_in_window(d_orderby, idx, following_window);
 
     return (thrust::upper_bound(
-              thrust::seq, d_orderby + idx, d_orderby + group_end, highest_in_window) -
+              thrust::seq, d_orderby + idx, d_orderby + group_end, highest_in_window, nan_aware_less{}) -
             (d_orderby + idx)) -
            1;
   };
@@ -619,15 +638,12 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     auto const search_start     = nulls_begin == group_start ? nulls_end : group_start;
     auto const lowest_in_window = compute_lowest_in_window(d_orderby, idx, preceding_window);
 
-    auto const preceding = ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
+    return ((d_orderby + idx) - thrust::lower_bound(thrust::seq,
                                                     d_orderby + search_start,
                                                     d_orderby + idx,
-                                                    lowest_in_window)) +
+                                                    lowest_in_window,
+                                                    nan_aware_less{})) +
            1;  // Add 1, for `preceding` to account for current row.
-    if constexpr (cuda::std::numeric_limits<T>::has_infinity) {
-      printf("For index %d, preceding == %ld\n", idx, preceding);
-    }
-    return preceding;
   };
 
   auto const preceding_column = expand_to_column(preceding_calculator, input.size(), stream);
@@ -667,15 +683,10 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     auto const search_end        = nulls_begin == group_start ? group_end : nulls_begin;
     auto const highest_in_window = compute_highest_in_window(d_orderby, idx, following_window);
 
-    auto const following = (thrust::upper_bound(
-              thrust::seq, d_orderby + idx, d_orderby + search_end, highest_in_window) -
+    return (thrust::upper_bound(
+              thrust::seq, d_orderby + idx, d_orderby + search_end, highest_in_window, nan_aware_less{}) -
             (d_orderby + idx)) -
            1;
-
-    if constexpr (std::is_same_v<T, float>) {
-      printf("For index %d, following == %ld, because highest_in_window == %f\n", idx, following, highest_in_window);
-    }
-    return following;
   };
 
   auto const following_column = expand_to_column(following_calculator, input.size(), stream);
@@ -683,6 +694,24 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
   return cudf::detail::rolling_window(
     input, preceding_column->view(), following_column->view(), min_periods, aggr, stream, mr);
 }
+
+struct nan_aware_greater
+{
+  template <typename T, CUDF_ENABLE_IF(not cudf::is_floating_point<T>())>
+  __device__ bool operator()(T const& lhs, T const& rhs) const
+  {
+    return thrust::greater<T>{}(lhs, rhs);
+  }
+
+  template <typename T, CUDF_ENABLE_IF(cudf::is_floating_point<T>())>
+  __device__ bool operator()(T const& lhs, T const& rhs) const
+  {
+    if (std::isnan(lhs)) {
+      return !std::isnan(rhs);
+    }
+    return std::isnan(rhs) ? false : lhs > rhs;
+  }
+};
 
 /// Range window computation, with
 ///   1. no grouping keys specified
@@ -734,7 +763,7 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
                                 d_orderby + group_start,
                                 d_orderby + idx,
                                 highest_in_window,
-                                thrust::greater<decltype(highest_in_window)>())) +
+                                nan_aware_greater{})) +
            1;  // Add 1, for `preceding` to account for current row.
   };
 
@@ -768,7 +797,7 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
                                 d_orderby + idx,
                                 d_orderby + group_end,
                                 lowest_in_window,
-                                thrust::greater<decltype(lowest_in_window)>()) -
+                                nan_aware_greater{}) -
             (d_orderby + idx)) -
            1;
   };
@@ -829,13 +858,17 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     auto const search_start      = nulls_begin == group_start ? nulls_end : group_start;
     auto const highest_in_window = compute_highest_in_window(d_orderby, idx, preceding_window);
 
-    return ((d_orderby + idx) -
+    auto const preceding = ((d_orderby + idx) -
             thrust::lower_bound(thrust::seq,
                                 d_orderby + search_start,
                                 d_orderby + idx,
                                 highest_in_window,
-                                thrust::greater<decltype(highest_in_window)>())) +
+                                nan_aware_greater{})) +
            1;  // Add 1, for `preceding` to account for current row.
+    if constexpr (std::is_floating_point<T>()) {
+      printf("CALEB: For idx:%d value:%f highest:%f, preceding=%ld\n", idx, d_orderby[idx], highest_in_window, preceding);
+    }
+    return preceding;
   };
 
   auto const preceding_column = expand_to_column(preceding_calculator, input.size(), stream);
@@ -872,13 +905,17 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     auto const search_end       = nulls_begin == group_start ? group_end : nulls_begin;
     auto const lowest_in_window = compute_lowest_in_window(d_orderby, idx, following_window);
 
-    return (thrust::upper_bound(thrust::seq,
+    auto const following = (thrust::upper_bound(thrust::seq,
                                 d_orderby + idx,
                                 d_orderby + search_end,
                                 lowest_in_window,
-                                thrust::greater<decltype(lowest_in_window)>()) -
+                                nan_aware_greater{}) -
             (d_orderby + idx)) -
            1;
+    if constexpr (std::is_floating_point<T>()) {
+      printf("CALEB: For idx:%d value:%f lowest:%f, following=%ld\n", idx, d_orderby[idx], lowest_in_window, following);
+    }
+    return following;
   };
 
   auto const following_column = expand_to_column(following_calculator, input.size(), stream);
