@@ -858,17 +858,13 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     auto const search_start      = nulls_begin == group_start ? nulls_end : group_start;
     auto const highest_in_window = compute_highest_in_window(d_orderby, idx, preceding_window);
 
-    auto const preceding = ((d_orderby + idx) -
+    return ((d_orderby + idx) -
             thrust::lower_bound(thrust::seq,
                                 d_orderby + search_start,
                                 d_orderby + idx,
                                 highest_in_window,
                                 nan_aware_greater{})) +
            1;  // Add 1, for `preceding` to account for current row.
-    if constexpr (std::is_floating_point<T>()) {
-      printf("CALEB: For idx:%d value:%f highest:%f, preceding=%ld\n", idx, d_orderby[idx], highest_in_window, preceding);
-    }
-    return preceding;
   };
 
   auto const preceding_column = expand_to_column(preceding_calculator, input.size(), stream);
@@ -905,17 +901,13 @@ std::unique_ptr<column> range_window_DESC(column_view const& input,
     auto const search_end       = nulls_begin == group_start ? group_end : nulls_begin;
     auto const lowest_in_window = compute_lowest_in_window(d_orderby, idx, following_window);
 
-    auto const following = (thrust::upper_bound(thrust::seq,
+    return (thrust::upper_bound(thrust::seq,
                                 d_orderby + idx,
                                 d_orderby + search_end,
                                 lowest_in_window,
                                 nan_aware_greater{}) -
             (d_orderby + idx)) -
            1;
-    if constexpr (std::is_floating_point<T>()) {
-      printf("CALEB: For idx:%d value:%f lowest:%f, following=%ld\n", idx, d_orderby[idx], lowest_in_window, following);
-    }
-    return following;
   };
 
   auto const following_column = expand_to_column(following_calculator, input.size(), stream);
