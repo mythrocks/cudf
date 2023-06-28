@@ -398,6 +398,9 @@ std::unique_ptr<column> expand_to_column(Calculator const& calc,
   return window_column;
 }
 
+/**
+ * @brief Comparator for numeric order-by columns, handling floating point NaN values.
+ */
 struct nan_aware_less
 {
   template <typename T, CUDF_ENABLE_IF(not cudf::is_floating_point<T>())>
@@ -695,6 +698,9 @@ std::unique_ptr<column> range_window_ASC(column_view const& input,
     input, preceding_column->view(), following_column->view(), min_periods, aggr, stream, mr);
 }
 
+/**
+ * @brief Comparator for numeric order-by columns, handling floating point NaN values.
+ */
 struct nan_aware_greater
 {
   template <typename T, CUDF_ENABLE_IF(not cudf::is_floating_point<T>())>
