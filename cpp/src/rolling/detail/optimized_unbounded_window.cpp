@@ -23,11 +23,39 @@
 #include <cudf/unary.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
+#include <set>
+
 namespace cudf::detail {
+
+bool can_compute_via_aggregation(bool unbounded_preceding,
+                                 bool unbounded_following,
+                                 size_type min_periods,
+                                 rolling_aggregation const& agg)
+{
+  auto is_supported_agg = [&] {
+    auto static const supported_aggs = std::set<cudf::aggregation::Kind>{
+      cudf::aggregation::Kind::COUNT_ALL,
+      cudf::aggregation::Kind::COUNT_VALID,
+      cudf::aggregation::Kind::MIN,
+      cudf::aggregation::Kind::MAX,
+      cudf::aggregation::Kind::SUM,
+      // TODO (future): COLLECT_LIST and COLLECT_SET can be added at a later date.
+      //
+      // Other aggregations do not fit into the [UNBOUNDED, UNBOUNDED]
+      // category. For instance:
+      // 1. Ranking functions (ROW_NUMBER, RANK, DENSE_RANK, PERCENT_RANK)
+      //    use [UNBOUNDED PRECEDING, CURRENT ROW].
+      // 2. LEAD/LAG are defined on finite row boundaries.
+    };
+    return supported_aggs.find(agg.kind) != supported_aggs.end();
+  };
+
+  return unbounded_preceding && unbounded_following && (min_periods == 1) && is_supported_agg();
+}
 
 std::unique_ptr<cudf::groupby_aggregation> to_groupby_agg(cudf::rolling_aggregation const& aggr)
 {
-  switch(aggr.kind) {
+  switch (aggr.kind) {
     case cudf::aggregation::Kind::COUNT_ALL:
       return cudf::make_count_aggregation<cudf::groupby_aggregation>(null_policy::INCLUDE);
     case cudf::aggregation::Kind::COUNT_VALID:
@@ -38,10 +66,11 @@ std::unique_ptr<cudf::groupby_aggregation> to_groupby_agg(cudf::rolling_aggregat
       return cudf::make_min_aggregation<cudf::groupby_aggregation>();
     case cudf::aggregation::Kind::MAX:
       return cudf::make_max_aggregation<cudf::groupby_aggregation>();
-    case cudf::aggregation::Kind::COLLECT_LIST:
-    case cudf::aggregation::Kind::COLLECT_SET:
+    case cudf::aggregation::Kind::COLLECT_LIST:  // TODO (future).
+    case cudf::aggregation::Kind::COLLECT_SET:   // TODO (future).
 
-    default: CUDF_FAIL("Unsupported aggregation kind: " + std::to_string(static_cast<int>(aggr.kind)));
+    default:
+      CUDF_FAIL("Unsupported aggregation kind: " + std::to_string(static_cast<int>(aggr.kind)));
   }
 }
 
@@ -63,19 +92,20 @@ std::unique_ptr<column> aggregation_based_rolling_window(table_view const& group
 
   auto group_by = cudf::groupby::groupby{group_keys, cudf::null_policy::INCLUDE, cudf::sorted::YES};
   // TODO: Create detail API for groupby.aggregate() to take stream. But use default mr, for temp.
-  auto aggregation_results = group_by.aggregate(agg_requests);
+  auto aggregation_results           = group_by.aggregate(agg_requests);
   auto const& aggregation_result_col = aggregation_results.second.front().results.front();
 
   using cudf::groupby::detail::sort::sort_groupby_helper;
   auto helper = sort_groupby_helper{group_keys, cudf::null_policy::INCLUDE, cudf::sorted::YES, {}};
   auto const& group_labels = helper.group_labels(stream);
 
-  auto result_columns =  cudf::detail::gather(cudf::table_view{{*aggregation_result_col}},
-                                              group_labels,
-                                              cudf::out_of_bounds_policy::DONT_CHECK,
-                                              cudf::detail::negative_index_policy::NOT_ALLOWED,
-                                              stream,
-                                              mr)->release();
+  auto result_columns = cudf::detail::gather(cudf::table_view{{*aggregation_result_col}},
+                                             group_labels,
+                                             cudf::out_of_bounds_policy::DONT_CHECK,
+                                             cudf::detail::negative_index_policy::NOT_ALLOWED,
+                                             stream,
+                                             mr)
+                          ->release();
   return std::move(result_columns.front());
 }
 

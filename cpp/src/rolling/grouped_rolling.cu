@@ -93,28 +93,13 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
 
 namespace detail {
 
-bool can_compute_via_aggregation(window_bounds preceding,
-                                 window_bounds following,
+/// Checks if it is possible to optimize fully UNBOUNDED window function.
+bool can_compute_via_aggregation(bool unbounded_preceding,
+                                 bool unbounded_following,
                                  size_type min_periods,
-                                 rolling_aggregation const& agg)
-{
-  auto is_supported_agg = [&] {
-    auto static const supported_aggs = std::set<cudf::aggregation::Kind>{
-      cudf::aggregation::Kind::COUNT_ALL,
-      cudf::aggregation::Kind::COUNT_VALID,
-      cudf::aggregation::Kind::MIN,
-      cudf::aggregation::Kind::MAX,
-      cudf::aggregation::Kind::SUM,
-      cudf::aggregation::Kind::COLLECT_LIST,
-      cudf::aggregation::Kind::COLLECT_SET,
-    };
-    return supported_aggs.find(agg.kind) != supported_aggs.end();
-  };
+                                 rolling_aggregation const& agg);
 
-  return preceding.is_unbounded && following.is_unbounded && (min_periods <= 1) &&
-         is_supported_agg();
-}
-
+/// Optimized bypass for fully UNBOUNDED window functions.
 std::unique_ptr<column> aggregation_based_rolling_window(table_view const& group_keys,
                                                          column_view const& input,
                                                          rolling_aggregation const& aggr,
@@ -144,7 +129,10 @@ std::unique_ptr<column> grouped_rolling_window(table_view const& group_keys,
                "Defaults column must be either empty or have as many rows as the input column.");
 
   // Detect and bypass fully UNBOUNDED windows.
-  if (can_compute_via_aggregation(preceding_window_bounds, following_window_bounds, min_periods, aggr)) {
+  if (can_compute_via_aggregation(preceding_window_bounds.is_unbounded,
+                                  following_window_bounds.is_unbounded,
+                                  min_periods,
+                                  aggr)) {
     std::cout << "CALEB: Shortckt via aggs." << std::endl;
     return aggregation_based_rolling_window(group_keys, input, aggr, stream, mr);
   }
@@ -1072,6 +1060,14 @@ std::unique_ptr<column> grouped_range_rolling_window(table_view const& group_key
                "Size mismatch between group_keys and input vector.");
 
   CUDF_EXPECTS((min_periods > 0), "min_periods must be positive");
+
+  // Detect and bypass fully UNBOUNDED windows.
+  if (can_compute_via_aggregation(preceding.is_unbounded(),
+                                  following.is_unbounded(),
+                                  min_periods,
+                                  aggr)) {
+    return aggregation_based_rolling_window(group_keys, input, aggr, stream, mr);
+  }
 
   using sort_groupby_helper = cudf::groupby::detail::sort::sort_groupby_helper;
   using index_vector        = sort_groupby_helper::index_vector;
