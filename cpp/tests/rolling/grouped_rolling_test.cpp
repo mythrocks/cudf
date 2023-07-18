@@ -2345,6 +2345,7 @@ TYPED_TEST(TypedUnboundedWindowTest, UnboundedFollowingWindowSingleGroup)
 
 TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingAndFollowingWindowSingleGroup)
 {
+  std::cout << "CALEB: Running TypedUnboundedWindowTest/\\*.UnboundedPrecedingAndFollowingWindowSingleGroup." << std::endl;
   using T = TypeParam;
 
   auto const grp_col = cudf::test::fixed_width_column_wrapper<T>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -2365,7 +2366,7 @@ TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingAndFollowingWindowSingleG
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  cudf::test::fixed_width_column_wrapper<cudf::size_type>{
-                                   {9, 9, 9, 9, 9, 9, 9, 9, 9, 9}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+                                   9, 9, 9, 9, 9, 9, 9, 9, 9, 9});
 }
 
 TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingWindowMultiGroup)
@@ -2440,7 +2441,7 @@ TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingAndFollowingWindowMultiGr
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(),
                                  cudf::test::fixed_width_column_wrapper<cudf::size_type>{
-                                   {3, 3, 3, 3, 3, 4, 4, 4, 4, 4}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}});
+                                   3, 3, 3, 3, 3, 4, 4, 4, 4, 4});
 }
 
 TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingAndFollowingStructGroup)
@@ -2471,6 +2472,5 @@ TYPED_TEST(TypedUnboundedWindowTest, UnboundedPrecedingAndFollowingStructGroup)
                                  min_periods,
                                  *cudf::make_count_aggregation<cudf::rolling_aggregation>());
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(
-    output->view(), result_t{{3, 3, 3, 3, 3, 4, 4, 4, 4, 4}, cudf::test::iterators::no_nulls()});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output->view(), result_t{3, 3, 3, 3, 3, 4, 4, 4, 4, 4});
 }
