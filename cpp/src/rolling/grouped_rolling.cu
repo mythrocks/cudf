@@ -1062,10 +1062,8 @@ std::unique_ptr<column> grouped_range_rolling_window(table_view const& group_key
   CUDF_EXPECTS((min_periods > 0), "min_periods must be positive");
 
   // Detect and bypass fully UNBOUNDED windows.
-  if (can_compute_via_aggregation(preceding.is_unbounded(),
-                                  following.is_unbounded(),
-                                  min_periods,
-                                  aggr)) {
+  if (can_compute_via_aggregation(
+        preceding.is_unbounded(), following.is_unbounded(), min_periods, aggr)) {
     return aggregation_based_rolling_window(group_keys, input, aggr, stream, mr);
   }
 
