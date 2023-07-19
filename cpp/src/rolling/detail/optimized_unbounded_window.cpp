@@ -32,25 +32,26 @@ bool can_compute_via_aggregation(bool unbounded_preceding,
                                  size_type min_periods,
                                  rolling_aggregation const& agg)
 {
-  auto is_supported_agg = [&] {
-    auto static const supported_aggs = std::set<cudf::aggregation::Kind>{
-      cudf::aggregation::Kind::COUNT_ALL,
-      cudf::aggregation::Kind::COUNT_VALID,
-      cudf::aggregation::Kind::MIN,
-      cudf::aggregation::Kind::MAX,
-      cudf::aggregation::Kind::SUM,
-      // TODO (future): COLLECT_LIST and COLLECT_SET can be added at a later date.
-      //
-      // Other aggregations do not fit into the [UNBOUNDED, UNBOUNDED]
-      // category. For instance:
-      // 1. Ranking functions (ROW_NUMBER, RANK, DENSE_RANK, PERCENT_RANK)
-      //    use [UNBOUNDED PRECEDING, CURRENT ROW].
-      // 2. LEAD/LAG are defined on finite row boundaries.
-    };
-    return supported_aggs.find(agg.kind) != supported_aggs.end();
+  auto is_supported = [](auto const& agg) {
+    switch (agg.kind) {
+      case cudf::aggregation::Kind::COUNT_ALL:
+      case cudf::aggregation::Kind::COUNT_VALID:
+      case cudf::aggregation::Kind::SUM:
+      case cudf::aggregation::Kind::MIN:
+      case cudf::aggregation::Kind::MAX:
+        // TODO (future): COLLECT_LIST and COLLECT_SET can be added at a later date.
+        return true;
+      default:
+        // Other aggregations do not fit into the [UNBOUNDED, UNBOUNDED]
+        // category. For instance:
+        // 1. Ranking functions (ROW_NUMBER, RANK, DENSE_RANK, PERCENT_RANK)
+        //    use [UNBOUNDED PRECEDING, CURRENT ROW].
+        // 2. LEAD/LAG are defined on finite row boundaries.
+        return false;
+    }
   };
 
-  return unbounded_preceding && unbounded_following && (min_periods == 1) && is_supported_agg();
+  return unbounded_preceding && unbounded_following && (min_periods == 1) && is_supported(agg);
 }
 
 std::unique_ptr<cudf::groupby_aggregation> to_groupby_agg(cudf::rolling_aggregation const& aggr)
