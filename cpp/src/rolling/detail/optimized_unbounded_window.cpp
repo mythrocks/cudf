@@ -33,16 +33,15 @@ bool can_optimize_unbounded_window(bool unbounded_preceding,
                                    size_type min_periods,
                                    rolling_aggregation const& agg)
 {
-  auto is_supported = [] (auto const& agg) {
-    switch(agg.kind) {
+  auto is_supported = [](auto const& agg) {
+    switch (agg.kind) {
       case cudf::aggregation::Kind::COUNT_ALL:
       case cudf::aggregation::Kind::COUNT_VALID:
       case cudf::aggregation::Kind::SUM:
       case cudf::aggregation::Kind::MIN:
-      case cudf::aggregation::Kind::MAX:
-        return true;
+      case cudf::aggregation::Kind::MAX: return true;
       default:
-        // TODO (future): COLLECT_LIST and COLLECT_SET can be added at a later date.
+        // COLLECT_LIST and COLLECT_SET can be added at a later date.
         // Other aggregations do not fit into the [UNBOUNDED, UNBOUNDED]
         // category. For instance:
         // 1. Ranking functions (ROW_NUMBER, RANK, DENSE_RANK, PERCENT_RANK)
@@ -57,51 +56,25 @@ bool can_optimize_unbounded_window(bool unbounded_preceding,
 
 /// Converts rolling_aggregation to corresponding reduce/groupby_aggregation.
 template <typename Base>
-struct aggregation_converter
-{
-  /*
-  static constexpr bool is_supported(cudf::aggregation::Kind const k) {
-//    return    k == aggregation::Kind::COUNT_ALL
-//           or k == aggregation::Kind::COUNT_VALID
-    return (std::is_same_v<Base, cudf::groupby_aggregation>
-              and (k == aggregation::Kind::COUNT_VALID or k == aggregation::Kind::COUNT_ALL))
-           or k == aggregation::Kind::SUM
-           or k == aggregation::Kind::MIN
-           or k == aggregation::Kind::MAX;
-  }
-
-  template <aggregation::Kind k,
-            CUDF_ENABLE_IF(
-                std::is_same_v<Base, cudf::groupby_aggregation> and
-                (k == aggregation::Kind::COUNT_ALL or k == aggregation::Kind::COUNT_VALID))
-  std::unique_ptr<Base> operator() () const
-  {
-    return cudf::make_count_aggregation<Base>(
-        k == aggregation::Kind::COUNT_ALL ? null_policy::INCLUDE : null_policy::EXCLUDE);
-  };
-   */
-
+struct aggregation_converter {
   template <aggregation::Kind k>
-  std::unique_ptr<Base> operator() () const
+  std::unique_ptr<Base> operator()() const
   {
-    if constexpr (std::is_same_v<Base, cudf::groupby_aggregation> and k == aggregation::Kind::COUNT_ALL) {
+    if constexpr (std::is_same_v<Base, cudf::groupby_aggregation> and
+                  k == aggregation::Kind::COUNT_ALL) {
       // Note: cudf::reduce() does not support COUNT_ALL.
       return cudf::make_count_aggregation<Base>(null_policy::INCLUDE);
-    }
-    else if constexpr (std::is_same_v<Base, cudf::groupby_aggregation> and k == aggregation::Kind::COUNT_VALID) {
+    } else if constexpr (std::is_same_v<Base, cudf::groupby_aggregation> and
+                         k == aggregation::Kind::COUNT_VALID) {
       // Note: cudf::reduce() does not support COUNT_VALID.
       return cudf::make_count_aggregation<Base>(null_policy::EXCLUDE);
-    }
-    else if constexpr (k == aggregation::Kind::SUM) {
+    } else if constexpr (k == aggregation::Kind::SUM) {
       return cudf::make_sum_aggregation<Base>();
-    }
-    else if constexpr (k == aggregation::Kind::MIN) {
+    } else if constexpr (k == aggregation::Kind::MIN) {
       return cudf::make_min_aggregation<Base>();
-    }
-    else if constexpr (k == aggregation::Kind::MAX) {
+    } else if constexpr (k == aggregation::Kind::MAX) {
       return cudf::make_max_aggregation<Base>();
-    }
-    else {
+    } else {
       CUDF_FAIL("Unsupported aggregation kind: " + std::to_string(static_cast<int>(k)));
     }
   }
@@ -111,22 +84,6 @@ template <typename Base>
 std::unique_ptr<Base> convert_to(cudf::rolling_aggregation const& aggr)
 {
   return cudf::detail::aggregation_dispatcher(aggr.kind, aggregation_converter<Base>{});
-  /*
-  switch (aggr.kind) {
-    case cudf::aggregation::Kind::COUNT_ALL:
-      return cudf::make_count_aggregation<Base>(null_policy::INCLUDE);
-    case cudf::aggregation::Kind::COUNT_VALID:
-      return cudf::make_count_aggregation<Base>(null_policy::EXCLUDE);
-    case cudf::aggregation::Kind::SUM:
-      return cudf::make_sum_aggregation<Base>();
-    case cudf::aggregation::Kind::MIN:
-      return cudf::make_min_aggregation<Base>();
-    case cudf::aggregation::Kind::MAX:
-      return cudf::make_max_aggregation<Base>();
-    default:
-      CUDF_FAIL("Unsupported aggregation kind: " + std::to_string(static_cast<int>(aggr.kind)));
-  }
-   */
 }
 
 std::unique_ptr<column> aggregation_based_rolling_window(table_view const& group_keys,
@@ -162,39 +119,34 @@ std::unique_ptr<column> aggregation_based_rolling_window(table_view const& group
   return std::move(result_columns.front());
 }
 
+std::unique_ptr<column> reduction_based_rolling_window(column_view const& input,
+                                                       rolling_aggregation const& aggr,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::mr::device_memory_resource* mr)
+{
+  auto const reduce_results = [&] {
+    auto const return_dtype = cudf::detail::target_type(input.type(), aggr.kind);
+    if (aggr.kind == aggregation::COUNT_ALL) {
+      return cudf::make_fixed_width_scalar(input.size(), stream);
+    } else if (aggr.kind == aggregation::COUNT_VALID) {
+      return cudf::make_fixed_width_scalar(input.size() - input.null_count());
+    } else {
+      // TODO: Create detail API for reduce(), to take the stream.
+      return cudf::reduce(input, *convert_to<cudf::reduce_aggregation>(aggr), return_dtype);
+    }
+  }();
+  // Blow up results into separate column.
+  return cudf::make_column_from_scalar(*reduce_results, input.size(), stream, mr);
+}
 
-  std::unique_ptr<column> reduction_based_rolling_window(column_view const& input,
-                                                         rolling_aggregation const& aggr,
-                                                         rmm::cuda_stream_view stream,
-                                                         rmm::mr::device_memory_resource* mr)
-  {
-    auto const reduce_results = [&] {
-      auto const return_dtype = cudf::detail::target_type(input.type(), aggr.kind);
-      if (aggr.kind == aggregation::COUNT_ALL) {
-        return cudf::make_fixed_width_scalar(input.size(), stream);
-      }
-      else if (aggr.kind == aggregation::COUNT_VALID) {
-        return cudf::make_fixed_width_scalar(input.size() - input.null_count());
-      }
-      else {
-        // TODO: Create detail API for reduce(), to take the stream.
-        return cudf::reduce(input,
-                            *convert_to<cudf::reduce_aggregation>(aggr),
-                            return_dtype);
-      }
-    }();
-    // Blow up results into separate column.
-    return cudf::make_column_from_scalar(*reduce_results, input.size(), stream, mr);
-  }
-
-  std::unique_ptr<column> optimized_unbounded_window(table_view const& group_keys,
-                                                     column_view const& input,
-                                                     rolling_aggregation const& aggr,
-                                                     rmm::cuda_stream_view stream,
-                                                     rmm::mr::device_memory_resource* mr)
-  {
-    return group_keys.num_columns() > 0 ?
-                 aggregation_based_rolling_window(group_keys, input, aggr, stream, mr)
-               : reduction_based_rolling_window(input, aggr, stream, mr);
-  }
+std::unique_ptr<column> optimized_unbounded_window(table_view const& group_keys,
+                                                   column_view const& input,
+                                                   rolling_aggregation const& aggr,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::mr::device_memory_resource* mr)
+{
+  return group_keys.num_columns() > 0
+           ? aggregation_based_rolling_window(group_keys, input, aggr, stream, mr)
+           : reduction_based_rolling_window(input, aggr, stream, mr);
+}
 }  // namespace cudf::detail
