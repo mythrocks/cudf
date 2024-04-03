@@ -55,7 +55,7 @@ constexpr size_type block_size = 256;
  * Note that this value is shared by find, rfind, and contains functions.
  */
 constexpr size_type AVG_CHAR_BYTES_WARP_PARALLEL_THRESHOLD = 64;
-constexpr size_type AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD = block_size; // *2?
+constexpr size_type AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD = block_size * 2;
 
 /**
  * @brief Find function handles a string per thread
@@ -398,7 +398,7 @@ CUDF_KERNEL void contains_block_parallel_fn(column_device_view const d_strings,
         // check the target matches this part of the d_str data
         if (d_target.compare(d_str.data() + i, d_target.size_bytes()) == 0) { found = true; }
     }
-    __syncthreads(); // ??
+//    __syncthreads(); // ??
     auto const result = block_reduce{temp_storage}.Reduce(found, cub::Max());
     if (lane_idx == 0) { d_results[str_idx] = result; }
 }
