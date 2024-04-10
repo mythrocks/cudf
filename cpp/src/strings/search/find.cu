@@ -55,7 +55,7 @@ constexpr size_type block_size = 256;
  * Note that this value is shared by find, rfind, and contains functions.
  */
 constexpr size_type AVG_CHAR_BYTES_WARP_PARALLEL_THRESHOLD = 64;
-constexpr size_type AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD = block_size * 2;
+constexpr size_type AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD = block_size; // *2 ?
 
 /**
  * @brief Find function handles a string per thread
@@ -398,7 +398,7 @@ CUDF_KERNEL void contains_block_parallel_fn(column_device_view const d_strings,
         // check the target matches this part of the d_str data
         if (d_target.compare(d_str.data() + i, d_target.size_bytes()) == 0) { found = true; }
     }
-//    __syncthreads(); // ??
+
     auto const result = block_reduce{temp_storage}.Reduce(found, cub::Max());
     if (lane_idx == 0) { d_results[str_idx] = result; }
 }
@@ -577,7 +577,7 @@ std::unique_ptr<column> contains(strings_column_view const& input,
   // use warp/block parallel when the average string width is greater than the threshold
   if (avg_string_length > AVG_CHAR_BYTES_WARP_PARALLEL_THRESHOLD) {
     return contains_warp_or_block_parallel(input, target,
-      avg_string_length > AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD,stream, mr);
+      avg_string_length >= AVG_CHAR_BYTES_BLOCK_PARALLEL_THRESHOLD, stream, mr);
   }
 
   // benchmark measurements showed this to be faster for smaller strings
@@ -585,6 +585,19 @@ std::unique_ptr<column> contains(strings_column_view const& input,
     return d_string.find(d_target) != string_view::npos;
   };
   return contains_fn(input, target, pfn, stream, mr);
+}
+
+std::unique_ptr<table> contains(strings_column_view const& input,
+                                std::vector<std::reference_wrapper<string_scalar>> const& targets,
+                                rmm::cuda_stream_view stream,
+                                rmm::mr::device_memory_resource* mr)
+{
+    // TODO: Temp stub: Call contains() serially.
+    auto const contains_iter = thrust::make_transform_iterator(targets.begin(), [&](auto const& target) {
+        return contains(input, target, stream, mr);
+    });
+    auto result_columns = std::vector<std::unique_ptr<column>>(contains_iter, contains_iter + targets.size());
+    return std::make_unique<table>(std::move(result_columns));
 }
 
 std::unique_ptr<column> contains(strings_column_view const& strings,
@@ -663,6 +676,16 @@ std::unique_ptr<column> contains(strings_column_view const& strings,
 {
   CUDF_FUNC_RANGE();
   return detail::contains(strings, target, stream, mr);
+}
+
+
+std::unique_ptr<table> contains(strings_column_view const& strings,
+                                std::vector<std::reference_wrapper<string_scalar>> const& targets,
+                                rmm::cuda_stream_view stream,
+                                rmm::mr::device_memory_resource* mr)
+{
+    CUDF_FUNC_RANGE();
+    return detail::contains(strings, targets, stream, mr);
 }
 
 std::unique_ptr<column> contains(strings_column_view const& strings,
