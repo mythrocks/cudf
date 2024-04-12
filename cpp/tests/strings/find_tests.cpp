@@ -197,6 +197,109 @@ TEST_F(StringsFindTest, ContainsLongStrings)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 }
 
+TEST_F(StringsFindTest, ContainsVeryLongStrings)
+{
+    auto const strings_source = std::vector<std::string>{
+      "Héllo, there world and goodbye",
+      "quick brown fox jumped over the lazy brown dog; the fat cats jump in place without moving",
+      "the following code snippet demonstrates how to use search for values in an ordered range",
+      "it returns the last position where value could be inserted without violating the ordering",
+      "algorithms execution is parallelized as determined by an execution policy. t",
+      "he this is a continuation of previous row to make sure string boundaries are honored",
+      "abcdefghijklmnopqrstuvwxyz 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ !@#$%^&*()~",
+      ""};
+    auto const num_rows = static_cast<cudf::size_type>(strings_source.size());
+
+    auto const strings_multiplier = thrust::make_transform_iterator(std::begin(strings_source), [](auto const& str) {
+        return str + str + str + str + str;
+    });
+
+    auto const strings = cudf::test::strings_column_wrapper(strings_multiplier, strings_multiplier + num_rows);
+    auto strings_view = cudf::strings_column_view(strings);
+    auto results      = cudf::strings::contains(strings_view, cudf::string_scalar("e"));
+    auto expected     = cudf::test::fixed_width_column_wrapper<bool>({1, 1, 1, 1, 1, 1, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+    results  = cudf::strings::contains(strings_view, cudf::string_scalar(" the "));
+    expected = cudf::test::fixed_width_column_wrapper<bool>({0, 1, 0, 1, 0, 0, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+    results  = cudf::strings::contains(strings_view, cudf::string_scalar("a"));
+    expected = cudf::test::fixed_width_column_wrapper<bool>({1, 1, 1, 1, 1, 1, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+    results  = cudf::strings::contains(strings_view, cudf::string_scalar("~"));
+    expected = cudf::test::fixed_width_column_wrapper<bool>({0, 0, 0, 0, 0, 0, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
+
+TEST_F(StringsFindTest, MultiContains)
+{
+    auto const strings_source = std::vector<std::string>{
+            "Héllo, there world and goodbye",
+            "quick brown fox jumped over the lazy brown dog; the fat cats jump in place without moving",
+            "the following code snippet demonstrates how to use search for values in an ordered range",
+            "it returns the last position where value could be inserted without violating the ordering",
+            "algorithms execution is parallelized as determined by an execution policy. t",
+            "he this is a continuation of previous row to make sure string boundaries are honored",
+            "abcdefghijklmnopqrstuvwxyz 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ !@#$%^&*()~",
+            ""};
+    auto const num_rows = static_cast<cudf::size_type>(strings_source.size());
+
+    auto const strings_multiplier = thrust::make_transform_iterator(std::begin(strings_source), [](auto const& str) {
+        return str + str + str + str + str;
+    });
+
+    auto const strings = cudf::test::strings_column_wrapper(strings_multiplier, strings_multiplier + num_rows);
+    auto strings_view = cudf::strings_column_view(strings);
+
+    auto search_key_0 = cudf::string_scalar{" the "};
+    auto search_key_1 = cudf::string_scalar{"a"};
+    auto search_keys = std::vector<std::reference_wrapper<cudf::string_scalar>>{};
+    search_keys.emplace_back(search_key_0);
+    search_keys.emplace_back(search_key_1);
+
+    auto results  = cudf::strings::contains(strings_view, search_keys);
+    auto expected_0 = cudf::test::fixed_width_column_wrapper<bool>({0, 1, 0, 1, 0, 0, 0, 0});
+    auto expected_1 = cudf::test::fixed_width_column_wrapper<bool>({1, 1, 1, 1, 1, 1, 1, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(results->get_column(0), expected_0);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(results->get_column(1), expected_1);
+}
+
+#include <cudf/io/parquet.hpp>
+#include <cudf/reduction.hpp>
+#include <cudf/unary.hpp>
+#include <cudf_test/debug_utilities.hpp>
+
+TEST_F(StringsFindTest, ContainsIfElse) {
+    auto const file_path = "/tmp/repeat_strings_256/part-00000.snappy.parquet";
+
+    auto const read_opts = cudf::io::parquet_reader_options::builder(cudf::io::source_info{file_path}).build();
+    auto const read_results = cudf::io::read_parquet(read_opts);
+    auto const &read_table = *read_results.tbl;
+
+    std::cout << "CALEB: Read output rows: " << read_table.num_rows() << std::endl;
+
+    auto const strings_col = read_table.get_column(0);
+
+    // for (int i{0}; i < 1000; ++i) {
+        for (auto const skey: {"go-http-client", "libcurlot", "libcurl", "wspcdn", "byte-pcdn/vod"}) {
+            auto const search_key = cudf::string_scalar{skey};
+
+            auto const contains_go_http_client = cudf::strings::contains(strings_col.view(), search_key);
+            auto const as_ints = cudf::cast(*contains_go_http_client, cudf::data_type{cudf::type_id::INT32});
+            auto const sum = cudf::reduce(*as_ints, *cudf::make_sum_aggregation<cudf::reduce_aggregation>(),
+                                          cudf::data_type{cudf::type_id::INT32});
+
+            // Hack! For printing.
+            auto const sum_col = cudf::make_column_from_scalar(*sum, 1);
+            std::cout << "Number of " << skey << " instances found: " << std::endl;
+            cudf::test::print(*sum_col);
+        }
+    // }
+}
+
 TEST_F(StringsFindTest, StartsWith)
 {
   cudf::test::strings_column_wrapper strings({"Héllo", "thesé", "", "lease", "tést strings", ""},

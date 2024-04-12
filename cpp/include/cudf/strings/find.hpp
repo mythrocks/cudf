@@ -139,6 +139,13 @@ std::unique_ptr<column> contains(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+/// Multi-contains.
+std::unique_ptr<table> contains(
+        strings_column_view const& input,
+        std::vector<std::reference_wrapper<string_scalar>> const& targets,
+        rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+        rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 /**
  * @brief Returns a column of boolean values for each string where true indicates
  * the corresponding target string was found within that string in the provided column.
