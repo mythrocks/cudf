@@ -656,16 +656,19 @@ std::unique_ptr<table> gather(table_view const& source_table,
                               rmm::device_async_resource_ref mr)
 {
   auto const num_columns = source_table.num_columns();
+  auto const num_streams = std::min(cudf::detail::global_cuda_stream_pool().get_stream_pool_size(),
+                                    static_cast<size_t>(num_columns));
   auto result            = std::vector<std::unique_ptr<column>>(num_columns);
 
   // The data gather for n columns will be executed over n streams. If there is
   // only a single column, the fork/join overhead should be avoided.
-  auto streams = std::vector<rmm::cuda_stream_view>{};
+  auto streams = (num_streams > 1) ? cudf::detail::fork_streams(stream, num_streams) : std::vector<rmm::cuda_stream_view>{stream};
+  /*
   if (num_columns > 1) {
     streams = cudf::detail::fork_streams(stream, num_columns);
   } else {
     streams.push_back(stream);
-  }
+  }*/
 
   auto it = thrust::make_counting_iterator<size_type>(0);
 
@@ -678,7 +681,7 @@ std::unique_ptr<table> gather(table_view const& source_table,
       gather_map_begin,
       gather_map_end,
       bounds_policy == out_of_bounds_policy::NULLIFY,
-      streams[i],
+      streams[i % num_streams],
       mr);
   });
 

@@ -416,12 +416,16 @@ std::unique_ptr<table> scatter(table_view const& source,
 
   // The data scatter for n columns will be executed over n streams. If there is
   // only a single column, the fork/join overhead should be avoided.
-  auto streams = std::vector<rmm::cuda_stream_view>{};
-  if (num_columns > 1) {
-    streams = cudf::detail::fork_streams(stream, num_columns);
+  auto const num_streams = std::min(cudf::detail::global_cuda_stream_pool().get_stream_pool_size(),
+                                    static_cast<size_t>(num_columns));
+  auto streams = (num_streams > 1) ? cudf::detail::fork_streams(stream, num_streams) : std::vector<rmm::cuda_stream_view>{stream};
+  /*
+  if (num_streams > 1) {
+    streams = cudf::detail::fork_streams(stream, num_streams);
   } else {
     streams.push_back(stream);
   }
+  */
 
   auto it = thrust::make_counting_iterator<size_type>(0);
 
@@ -433,7 +437,7 @@ std::unique_ptr<table> scatter(table_view const& source,
                                                   updated_scatter_map_begin,
                                                   updated_scatter_map_end,
                                                   target.column(i),
-                                                  streams[i],
+                                                  streams[i % num_streams],
                                                   mr);
   });
 
