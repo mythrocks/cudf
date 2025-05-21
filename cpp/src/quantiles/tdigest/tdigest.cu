@@ -106,19 +106,10 @@ CUDF_KERNEL void compute_percentiles_kernel(device_span<size_type const> tdigest
     // The following Arrow code serves as a basis for this computation
     // https://github.com/apache/arrow/blob/master/cpp/src/arrow/util/tdigest.cc#L280
     double const weighted_q = percentage * total_weight;
-    printf("CALEB: compute_percentiles_kernel[tid: %lu]: weighted_q: %.2f\n", tid, weighted_q);
     if (weighted_q <= 1) {
-      printf("CALEB: compute_percentiles_kernel[tid: %lu]: (weighted_q=%.2f) <= 1\n", tid, weighted_q);
       return *min_val;
     } else if (weighted_q > total_weight - 1) {
-      printf("CALEB: compute_percentiles_kernel[tid: %lu]: (weighted_q=%.2f) >= (total_weight=%.2f) - 1\n", tid, weighted_q, total_weight);
       return *max_val;
-    }
-
-    if (tid == 3) {
-      for (size_type i = 0; i < tdigest_size; ++i) {
-        printf("CALEB: cumulative_weight[%d]: %.2f\n", i, cumulative_weight[i]);
-      }
     }
 
     // determine what centroid this weighted quantile falls within.
@@ -141,7 +132,6 @@ CUDF_KERNEL void compute_percentiles_kernel(device_span<size_type const> tdigest
     // Y has a diff of 0 (directly in the middle of the centroid)
     // Z has a diff of 3 (3 units to the right of the center of the centroid)
     double const diff = weighted_q + c.weight / 2 - cumulative_weight[centroid_index];
-    printf("CALEB: compute_percentiles_kernel[tid: %lu]: centroid_index: %d, diff: %.2f\n", tid, centroid_index, diff);
 
     // if we're completely within a centroid of weight 1, just return that.
     if (c.weight == 1 && std::abs(diff) <= 0.5) { return c.mean; }
