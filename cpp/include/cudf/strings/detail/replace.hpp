@@ -33,7 +33,7 @@ std::unique_ptr<column> replace(strings_column_view const& strings,
 std::unique_ptr<column> replace(strings_column_view const& strings,
                                 strings_column_view const& targets,
                                 strings_column_view const& repls,
-                                int32_t maxrepl,
+                                cudf::size_type maxrepl,
                                 rmm::cuda_stream_view stream,
                                 rmm::device_async_resource_ref mr);
 

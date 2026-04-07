@@ -9,7 +9,6 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/algorithms/copy_if.cuh>
 #include <cudf/detail/null_mask.hpp>
-#include <cudf/table/table_view.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -20,6 +19,7 @@
 #include <cudf/strings/replace.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/table/table_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
@@ -377,9 +377,11 @@ struct replace_fn {
 
   __device__ void operator()(size_type idx)
   {
-    // Early-return for null input rows. The combined null mask (computed after
-    // the kernel) handles null target/repl rows; we must not call the getters
-    // for a null input row because the input string_view would be garbage.
+    // Early-return for null input rows. Reading element<string_view> from a null
+    // row is documented undefined behavior; the input string_view would be garbage.
+    // Null target/repl rows are guarded in the getter lambdas, which return an
+    // empty string_view{} that causes the empty-target path below to copy the row
+    // unchanged (it will be masked null afterward by the caller's bitmask_and).
     if (d_strings.is_null(idx)) {
       if (!d_chars) { d_sizes[idx] = 0; }
       return;
@@ -435,6 +437,11 @@ struct replace_fn {
  *
  * Returns a strings column with no null mask set; callers are responsible for
  * computing and applying the appropriate null mask via `set_null_mask()`.
+ *
+ * @warning The returned column has `null_count == 0` and no null mask regardless of
+ * the input's nullability. Every caller **must** call `set_null_mask()` with the
+ * correct combined mask before returning the column to user-facing code. Forgetting
+ * this step will produce a column that reports zero nulls even when nulls are present.
  */
 template <typename TargetGetter, typename ReplGetter>
 std::unique_ptr<column> replace_string_parallel(strings_column_view const& input,
@@ -493,12 +500,24 @@ std::unique_ptr<column> replace(strings_column_view const& input,
 std::unique_ptr<column> replace(strings_column_view const& input,
                                 strings_column_view const& targets,
                                 strings_column_view const& repls,
-                                int32_t maxrepl,
+                                cudf::size_type maxrepl,
                                 rmm::cuda_stream_view stream,
                                 rmm::device_async_resource_ref mr)
 {
   if (input.is_empty()) { return make_empty_column(type_id::STRING); }
-  if (maxrepl == 0) { return std::make_unique<cudf::column>(input.parent(), stream, mr); }
+  if (maxrepl == 0) {
+    // No replacements requested. Return a copy of input, but still apply the
+    // combined null mask so that rows where targets[i] or repls[i] is null
+    // appear as null in the output (consistent with the general null contract).
+    auto result = std::make_unique<cudf::column>(input.parent(), stream, mr);
+    if (targets.null_count() > 0 || repls.null_count() > 0) {
+      auto const views = std::vector<column_view>{
+        input.parent(), targets.parent(), repls.parent()};
+      auto [null_mask, null_count] = cudf::detail::bitmask_and(table_view{views}, stream, mr);
+      result->set_null_mask(std::move(null_mask), null_count);
+    }
+    return result;
+  }
   CUDF_EXPECTS(targets.size() == input.size(),
                "targets column must have the same number of rows as input");
   CUDF_EXPECTS(repls.size() == input.size(),
@@ -507,11 +526,15 @@ std::unique_ptr<column> replace(strings_column_view const& input,
   auto d_targets = column_device_view::create(targets.parent(), stream);
   auto d_repls   = column_device_view::create(repls.parent(), stream);
 
+  // Guard against null target/repl rows: element<string_view>() on a null element
+  // is documented undefined behavior. Returning string_view{} for null rows causes
+  // the empty-target path in the kernel to copy the input row unchanged; the caller
+  // masks those rows null via bitmask_and after the kernel completes.
   auto tgt_fn  = [d_tgts = *d_targets] __device__(size_type idx) {
-    return d_tgts.element<string_view>(idx);
+    return d_tgts.is_valid(idx) ? d_tgts.element<string_view>(idx) : string_view{};
   };
   auto repl_fn = [d_rps = *d_repls] __device__(size_type idx) {
-    return d_rps.element<string_view>(idx);
+    return d_rps.is_valid(idx) ? d_rps.element<string_view>(idx) : string_view{};
   };
 
   // The character-parallel path scans bytes for a single global target and cannot
@@ -522,7 +545,8 @@ std::unique_ptr<column> replace(strings_column_view const& input,
   // The combined null mask is computed as the bitwise AND of the three input masks.
   // Fast path: skip if none of the columns has nulls.
   if (input.null_count() > 0 || targets.null_count() > 0 || repls.null_count() > 0) {
-    auto const views             = std::vector<column_view>{input.parent(), targets.parent(), repls.parent()};
+    auto const views = std::vector<column_view>{
+      input.parent(), targets.parent(), repls.parent()};
     auto [null_mask, null_count] = cudf::detail::bitmask_and(table_view{views}, stream, mr);
     result->set_null_mask(std::move(null_mask), null_count);
   }
