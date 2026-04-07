@@ -540,6 +540,159 @@ TEST_F(StringsReplaceTest, EmptyTarget)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(results->view(), expected);
 }
 
+TEST_F(StringsReplaceTest, ReplaceColumnBasic)
+{
+  // Basic per-row replacement: each row uses its own target/repl pair
+  auto const input   = cudf::test::strings_column_wrapper({"hello world", "foo bar", "aaa", ""});
+  auto const targets = cudf::test::strings_column_wrapper({"o", "bar", "a", "x"});
+  auto const repls   = cudf::test::strings_column_wrapper({"0", "BAR", "X", "y"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv);
+  auto const expected = cudf::test::strings_column_wrapper({"hell0 w0rld", "foo BAR", "XXX", ""});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnNullInput)
+{
+  // Null in input[i] → null output row; non-null rows are processed normally
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"}, {1, 0, 1});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv);
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnNullTarget)
+{
+  // Null in targets[i] → null output row; other rows unaffected
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"}, {1, 0, 1});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv);
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnNullRepl)
+{
+  // Null in repls[i] → null output row; other rows unaffected
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"}, {1, 0, 1});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv);
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnEmptyTarget)
+{
+  // Empty targets[i] → input[i] copied unchanged (no replacement)
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "", "o"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "X", "0"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv);
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnMaxReplZero)
+{
+  // maxrepl == 0 → copy of input returned
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world"});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "o"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "0"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result = cudf::strings::replace(iv, tv, rv, 0);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, input);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnMaxReplOne)
+{
+  // maxrepl == 1 → only first occurrence per row replaced
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "aaa"});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "a"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "X"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result   = cudf::strings::replace(iv, tv, rv, 1);
+  auto const expected = cudf::test::strings_column_wrapper({"heLlo", "Xaa"});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnMismatchedSizes)
+{
+  // targets.size() != input.size() → throws
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "world"});
+  auto const targets = cudf::test::strings_column_wrapper({"l"});
+  auto const repls   = cudf::test::strings_column_wrapper({"L"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  EXPECT_THROW(cudf::strings::replace(iv, tv, rv), cudf::logic_error);
+
+  // repls.size() != input.size() → throws
+  auto const targets2 = cudf::test::strings_column_wrapper({"l", "o"});
+  auto const repls2   = cudf::test::strings_column_wrapper({"L"});
+  auto const tv2      = cudf::strings_column_view(targets2);
+  auto const rv2      = cudf::strings_column_view(repls2);
+
+  EXPECT_THROW(cudf::strings::replace(iv, tv2, rv2), cudf::logic_error);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnAllNullInput)
+{
+  // All-null input → all-null output
+  auto const input   = cudf::test::strings_column_wrapper({"a", "b", "c"}, {0, 0, 0});
+  auto const targets = cudf::test::strings_column_wrapper({"a", "b", "c"});
+  auto const repls   = cudf::test::strings_column_wrapper({"x", "y", "z"});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result = cudf::strings::replace(iv, tv, rv);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, input);
+}
+
+TEST_F(StringsReplaceTest, ReplaceColumnEmpty)
+{
+  // Empty input column → empty output column
+  auto const input   = cudf::test::strings_column_wrapper();
+  auto const targets = cudf::test::strings_column_wrapper();
+  auto const repls   = cudf::test::strings_column_wrapper();
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
+
+  auto const result = cudf::strings::replace(iv, tv, rv);
+  cudf::test::expect_column_empty(result->view());
+}
+
 TEST_F(StringsReplaceTest, EmptyStringsColumn)
 {
   auto const zero_size_strings_column = cudf::make_empty_column(cudf::type_id::STRING)->view();
