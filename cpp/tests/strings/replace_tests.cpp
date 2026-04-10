@@ -558,7 +558,7 @@ TEST_F(StringsReplaceTest, ReplaceColumnBasic)
 TEST_F(StringsReplaceTest, ReplaceColumnNullInput)
 {
   // Null in input[i] → null output row; non-null rows are processed normally
-  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"}, {1, 0, 1});
+  auto const input   = cudf::test::strings_column_wrapper({"hello", "", "foo"}, {1, 0, 1});
   auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"});
   auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"});
   auto const iv      = cudf::strings_column_view(input);
@@ -566,7 +566,7 @@ TEST_F(StringsReplaceTest, ReplaceColumnNullInput)
   auto const rv      = cudf::strings_column_view(repls);
 
   auto const result   = cudf::strings::replace(iv, tv, rv);
-  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "", "f00"}, {1, 0, 1});
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
 }
 
@@ -574,14 +574,14 @@ TEST_F(StringsReplaceTest, ReplaceColumnNullTarget)
 {
   // Null in targets[i] → null output row; other rows unaffected
   auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
-  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"}, {1, 0, 1});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "", "o"}, {1, 0, 1});
   auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"});
   auto const iv      = cudf::strings_column_view(input);
   auto const tv      = cudf::strings_column_view(targets);
   auto const rv      = cudf::strings_column_view(repls);
 
   auto const result   = cudf::strings::replace(iv, tv, rv);
-  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "", "f00"}, {1, 0, 1});
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
 }
 
@@ -590,13 +590,13 @@ TEST_F(StringsReplaceTest, ReplaceColumnNullRepl)
   // Null in repls[i] → null output row; other rows unaffected
   auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
   auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"});
-  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"}, {1, 0, 1});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "", "0"}, {1, 0, 1});
   auto const iv      = cudf::strings_column_view(input);
   auto const tv      = cudf::strings_column_view(targets);
   auto const rv      = cudf::strings_column_view(repls);
 
   auto const result   = cudf::strings::replace(iv, tv, rv);
-  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "f00"}, {1, 0, 1});
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "", "f00"}, {1, 0, 1});
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
 }
 
@@ -668,7 +668,7 @@ TEST_F(StringsReplaceTest, ReplaceColumnMismatchedSizes)
 TEST_F(StringsReplaceTest, ReplaceColumnAllNullInput)
 {
   // All-null input → all-null output
-  auto const input   = cudf::test::strings_column_wrapper({"a", "b", "c"}, {0, 0, 0});
+  auto const input   = cudf::test::strings_column_wrapper({"", "", ""}, {0, 0, 0});
   auto const targets = cudf::test::strings_column_wrapper({"a", "b", "c"});
   auto const repls   = cudf::test::strings_column_wrapper({"x", "y", "z"});
   auto const iv      = cudf::strings_column_view(input);
@@ -701,19 +701,15 @@ TEST_F(StringsReplaceTest, ReplaceColumnCombinedNulls)
   // Row 1: input=null,  targets=valid, repls=valid  → null  (input null)
   // Row 2: input=valid, targets=null,  repls=valid  → null  (target null; exercises Issue #1)
   // Row 3: input=valid, targets=valid, repls=null   → null  (repl null)
-  auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo", "bar"},
-                                                           {1, 0, 1, 1});
-  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o", "a"},
-                                                           {1, 1, 0, 1});
-  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0", "A"},
-                                                           {1, 1, 1, 0});
-  auto const iv = cudf::strings_column_view(input);
-  auto const tv = cudf::strings_column_view(targets);
-  auto const rv = cudf::strings_column_view(repls);
+  auto const input = cudf::test::strings_column_wrapper({"hello", "", "foo", "bar"}, {1, 0, 1, 1});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "", "a"}, {1, 1, 0, 1});
+  auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0", ""}, {1, 1, 1, 0});
+  auto const iv      = cudf::strings_column_view(input);
+  auto const tv      = cudf::strings_column_view(targets);
+  auto const rv      = cudf::strings_column_view(repls);
 
   auto const result   = cudf::strings::replace(iv, tv, rv);
-  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "world", "foo", "bar"},
-                                                            {1, 0, 0, 0});
+  auto const expected = cudf::test::strings_column_wrapper({"heLLo", "", "", ""}, {1, 0, 0, 0});
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
 }
 
@@ -722,15 +718,14 @@ TEST_F(StringsReplaceTest, ReplaceColumnMaxReplZeroNulls)
   // maxrepl == 0 with nulls in targets: output rows where targets[i] is null
   // must themselves be null, not inherit input's valid status.
   auto const input   = cudf::test::strings_column_wrapper({"hello", "world", "foo"});
-  auto const targets = cudf::test::strings_column_wrapper({"l", "o", "o"}, {1, 0, 1});
+  auto const targets = cudf::test::strings_column_wrapper({"l", "", "o"}, {1, 0, 1});
   auto const repls   = cudf::test::strings_column_wrapper({"L", "0", "0"});
   auto const iv      = cudf::strings_column_view(input);
   auto const tv      = cudf::strings_column_view(targets);
   auto const rv      = cudf::strings_column_view(repls);
 
   auto const result   = cudf::strings::replace(iv, tv, rv, 0);
-  // Row 1: input valid, target null → output must be null
-  auto const expected = cudf::test::strings_column_wrapper({"hello", "world", "foo"}, {1, 0, 1});
+  auto const expected = cudf::test::strings_column_wrapper({"hello", "", "foo"}, {1, 0, 1});
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*result, expected);
 }
 
