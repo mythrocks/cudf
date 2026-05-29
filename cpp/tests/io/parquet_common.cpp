@@ -294,6 +294,29 @@ cudf::io::parquet::PageHeader read_page_header(std::unique_ptr<cudf::io::datasou
   return page_hdr;
 }
 
+std::pair<cudf::io::parquet::PageHeader, std::vector<uint8_t>> read_page_data(
+  std::unique_ptr<cudf::io::datasource> const& source,
+  cudf::io::parquet::PageLocation const& page_loc)
+{
+  CUDF_EXPECTS(page_loc.offset > 0, "Cannot find page header");
+  CUDF_EXPECTS(page_loc.compressed_page_size > 0, "Invalid page header length");
+
+  cudf::io::parquet::PageHeader page_hdr;
+  auto const page_buf = source->host_read(page_loc.offset, page_loc.compressed_page_size);
+  cudf::io::parquet::detail::CompactProtocolReader cp(page_buf->data(), page_buf->size());
+  cp.read(&page_hdr);
+
+  // The compressed page payload begins immediately after the thrift-encoded page header.
+  auto const header_size = static_cast<size_t>(cp.bytecount());
+  CUDF_EXPECTS(page_hdr.compressed_page_size >= 0, "Invalid compressed page size");
+  auto const payload_size = static_cast<size_t>(page_hdr.compressed_page_size);
+  CUDF_EXPECTS(header_size + payload_size <= page_buf->size(),
+               "Page payload extends beyond the buffer read from the source");
+
+  auto const* payload_begin = page_buf->data() + header_size;
+  return {page_hdr, std::vector<uint8_t>(payload_begin, payload_begin + payload_size)};
+}
+
 // =============================================================================
 // ---- test data for stats sort order tests
 

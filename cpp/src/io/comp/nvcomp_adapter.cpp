@@ -237,6 +237,13 @@ nvcompStatus_t batched_compress_get_temp_size_async(compression_type compression
                                                           temp_size,
                                                           max_total_uncompressed_bytes);
       break;
+    case compression_type::GZIP:
+      return nvcompBatchedGzipCompressGetTempSizeAsync(batch_size,
+                                                       max_uncompressed_chunk_bytes,
+                                                       nvcompBatchedGzipCompressDefaultOpts,
+                                                       temp_size,
+                                                       max_total_uncompressed_bytes);
+      break;
     case compression_type::ZSTD:
       return nvcompBatchedZstdCompressGetTempSizeAsync(batch_size,
                                                        max_uncompressed_chunk_bytes,
@@ -314,6 +321,19 @@ void batched_compress_async(compression_type compression,
                                                         device_nvcomp_statuses,
                                                         stream.value());
       break;
+    case compression_type::GZIP:
+      nvcomp_status = nvcompBatchedGzipCompressAsync(device_uncompressed_ptrs,
+                                                     device_uncompressed_bytes,
+                                                     max_uncompressed_chunk_bytes,
+                                                     batch_size,
+                                                     device_temp_ptr,
+                                                     temp_bytes,
+                                                     device_compressed_ptrs,
+                                                     device_compressed_bytes,
+                                                     nvcompBatchedGzipCompressDefaultOpts,
+                                                     device_nvcomp_statuses,
+                                                     stream.value());
+      break;
     case compression_type::ZSTD:
       nvcomp_status = nvcompBatchedZstdCompressAsync(device_uncompressed_ptrs,
                                                      device_uncompressed_bytes,
@@ -355,6 +375,7 @@ std::optional<std::string> is_compression_disabled_impl(compression_type compres
 {
   switch (compression) {
     case compression_type::DEFLATE:
+    case compression_type::GZIP:
     case compression_type::LZ4:
     case compression_type::SNAPPY:
     case compression_type::ZSTD:
@@ -588,16 +609,14 @@ size_t compress_max_output_chunk_size(compression_type compression,
         capped_uncomp_bytes, nvcompBatchedSnappyCompressDefaultOpts, &max_comp_chunk_size);
       break;
     case compression_type::DEFLATE:
-    case compression_type::GZIP: {
-      // nvcompBatchedGzipCompressGetMaxOutputChunkSize is not yet available
       status = nvcompBatchedDeflateCompressGetMaxOutputChunkSize(
         capped_uncomp_bytes, nvcompBatchedDeflateCompressDefaultOpts, &max_comp_chunk_size);
-      if (compression == compression_type::GZIP) {
-        // GZIP adds 18 bytes for header and footer
-        max_comp_chunk_size += 18;
-      }
       break;
-    }
+    case compression_type::GZIP:
+      // The GZIP max-output size already accounts for the gzip header/footer framing.
+      status = nvcompBatchedGzipCompressGetMaxOutputChunkSize(
+        capped_uncomp_bytes, nvcompBatchedGzipCompressDefaultOpts, &max_comp_chunk_size);
+      break;
     case compression_type::ZSTD:
       status = nvcompBatchedZstdCompressGetMaxOutputChunkSize(
         capped_uncomp_bytes, nvcompBatchedZstdCompressDefaultOpts, &max_comp_chunk_size);

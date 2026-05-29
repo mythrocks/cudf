@@ -28,6 +28,8 @@
 
 #include <src/io/parquet/parquet_common.hpp>
 
+#include <zlib.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -1564,11 +1566,86 @@ TEST_P(ParquetCompressionTest, SkipCompression)
             cudf::io::parquet::Compression::UNCOMPRESSED);
 }
 
+// Verify that GZIP-compressed Parquet pages are spec-compliant: each page must be a single
+// RFC 1952 GZIP member (header magic 1f 8b, DEFLATE method, CRC32/ISIZE trailer) -- not a zlib
+// stream and not raw DEFLATE. Round-tripping through cuDF alone would not catch non-spec framing
+// because cuDF would happily read back its own output, so this test decodes the raw page payload
+// with zlib's strict GZIP reader. Runs across the NVCOMP (device) and Host instantiations.
+TEST_P(ParquetCompressionTest, GzipPageFraming)
+{
+  auto const compression_type = std::get<1>(GetParam());
+  if (compression_type != cudf::io::compression_type::GZIP) {
+    GTEST_SKIP() << "GZIP-specific framing check";
+  }
+
+  // Highly compressible data so the writer keeps the page compressed (codec stays GZIP).
+  constexpr auto num_rows = 20000;
+  auto const seq = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return i / 50; });
+  column_wrapper<int> col(seq, seq + num_rows, no_nulls());
+  auto const expected = table_view{{col}};
+
+  auto const filepath = temp_env->get_temp_filepath("GzipPageFraming.parquet");
+  cudf::io::parquet_writer_options const out_opts =
+    cudf::io::parquet_writer_options::builder(cudf::io::sink_info{filepath}, expected)
+      .compression(compression_type)
+      .dictionary_policy(cudf::io::dictionary_policy::NEVER);
+  cudf::io::write_parquet(out_opts);
+
+  // Round-trips correctly through cuDF.
+  cudf::io::parquet_reader_options const read_opts =
+    cudf::io::parquet_reader_options::builder(cudf::io::source_info{filepath});
+  auto const result = cudf::io::read_parquet(read_opts);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*result.tbl, expected);
+
+  auto const source = cudf::io::datasource::create(filepath);
+  cudf::io::parquet::FileMetaData fmd;
+  read_footer(source, &fmd);
+  ASSERT_GT(fmd.row_groups.size(), 0);
+  ASSERT_EQ(fmd.row_groups[0].columns.size(), 1);
+  auto const& chunk = fmd.row_groups[0].columns[0].meta_data;
+
+  // Footer metadata must report the GZIP codec for the compressed chunk.
+  EXPECT_EQ(chunk.codec, cudf::io::parquet::Compression::GZIP);
+  ASSERT_GT(chunk.data_page_offset, 0);
+
+  // Read the raw payload of the first data page (the bytes after the thrift page header).
+  // sizeof(PageHeader) over-estimates the encoded header size, which read_page_data treats as
+  // an upper bound for the host read.
+  auto const [page_hdr, payload] = read_page_data(
+    source,
+    {chunk.data_page_offset, static_cast<int32_t>(sizeof(cudf::io::parquet::PageHeader)), 0});
+
+  // The payload must begin with the GZIP framing: ID1=0x1f, ID2=0x8b, CM=0x08 (DEFLATE).
+  // This distinguishes it from a zlib stream (which starts with 0x78) and from raw DEFLATE.
+  ASSERT_GE(payload.size(), 3u);
+  EXPECT_EQ(payload[0], 0x1fu);
+  EXPECT_EQ(payload[1], 0x8bu);
+  EXPECT_EQ(payload[2], 0x08u) << "GZIP compression method must be DEFLATE";
+
+  // Decode the payload with zlib's strict GZIP reader and verify it is exactly one member:
+  // inflate must reach Z_STREAM_END with all input consumed, producing uncompressed_page_size
+  // bytes. Leftover input (avail_in > 0) would indicate a second member or trailing garbage.
+  z_stream strm{};
+  // windowBits = 15 + 16 selects GZIP-only decoding (reject zlib/raw).
+  ASSERT_EQ(inflateInit2(&strm, 15 + 16), Z_OK);
+  std::vector<uint8_t> decoded(static_cast<size_t>(page_hdr.uncompressed_page_size));
+  strm.next_in   = const_cast<Bytef*>(payload.data());
+  strm.avail_in  = static_cast<uInt>(payload.size());
+  strm.next_out  = decoded.data();
+  strm.avail_out = static_cast<uInt>(decoded.size());
+  auto const rc  = inflate(&strm, Z_FINISH);
+  EXPECT_EQ(rc, Z_STREAM_END) << "page payload must be a complete, single GZIP member";
+  EXPECT_EQ(strm.total_out, static_cast<uLong>(page_hdr.uncompressed_page_size));
+  EXPECT_EQ(strm.avail_in, 0u) << "page payload must contain exactly one GZIP member";
+  EXPECT_EQ(inflateEnd(&strm), Z_OK);
+}
+
 INSTANTIATE_TEST_CASE_P(Nvcomp,
                         ParquetCompressionTest,
                         ::testing::Combine(::testing::Values("NVCOMP"),
                                            ::testing::Values(cudf::io::compression_type::AUTO,
                                                              cudf::io::compression_type::SNAPPY,
+                                                             cudf::io::compression_type::GZIP,
                                                              cudf::io::compression_type::LZ4,
                                                              cudf::io::compression_type::ZSTD)));
 
@@ -1583,6 +1660,7 @@ INSTANTIATE_TEST_CASE_P(Host,
                         ::testing::Combine(::testing::Values("HOST", "HYBRID", "AUTO"),
                                            ::testing::Values(cudf::io::compression_type::AUTO,
                                                              cudf::io::compression_type::SNAPPY,
+                                                             cudf::io::compression_type::GZIP,
                                                              cudf::io::compression_type::ZSTD)));
 
 TEST_F(ParquetWriterTest, NoNullsAsNonNullable)

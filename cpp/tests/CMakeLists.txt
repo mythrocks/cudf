@@ -345,6 +345,8 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+# Parquet writer tests decode GZIP page payloads to verify spec-compliant framing.
+target_link_libraries(PARQUET_TEST PRIVATE ZLIB::ZLIB)
 ConfigureTest(
   HYBRID_SCAN_TEST
   io/experimental/hybrid_scan_composer.cpp

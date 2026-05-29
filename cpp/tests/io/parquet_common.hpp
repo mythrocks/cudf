@@ -17,6 +17,8 @@
 
 #include <random>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 template <typename T, typename SourceElementT = T>
 using column_wrapper =
@@ -126,6 +128,16 @@ cudf::io::parquet::Statistics const& get_statistics(cudf::io::parquet::ColumnChu
 // throws cudf::logic_error if the page_loc data is invalid.
 cudf::io::parquet::PageHeader read_page_header(std::unique_ptr<cudf::io::datasource> const& source,
                                                cudf::io::parquet::PageLocation const& page_loc);
+
+// read the compressed (or uncompressed, depending on the codec) page payload bytes that
+// immediately follow the page header at the given location. The returned buffer has exactly
+// `PageHeader::compressed_page_size` bytes. `page_loc.compressed_page_size` is treated as an
+// upper bound on the size of the header plus payload, so passing a generous value (e.g.
+// `sizeof(PageHeader)` plus the chunk size) is safe.
+// Also returns the parsed page header so callers can access the uncompressed size, etc.
+std::pair<cudf::io::parquet::PageHeader, std::vector<uint8_t>> read_page_data(
+  std::unique_ptr<cudf::io::datasource> const& source,
+  cudf::io::parquet::PageLocation const& page_loc);
 
 // make a random validity iterator
 inline auto random_validity(std::mt19937& engine)
