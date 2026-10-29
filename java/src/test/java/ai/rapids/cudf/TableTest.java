@@ -10019,7 +10019,7 @@ public class TableTest extends CudfTestBase {
 
   ColumnView replaceValidity(ColumnView cv, DeviceMemoryBuffer validity, long nullCount) {
     assert (validity.length >= BitVectorHelper.getValidityAllocationSizeInBytes(cv.rows));
-    if (cv.type.isNestedType()) {
+    if (cv.type.hasChildren()) {
       ColumnView[] children = cv.getChildColumnViews();
       try {
         return new ColumnView(cv.type,

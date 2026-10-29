@@ -100,7 +100,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
                      BaseDeviceMemoryBuffer offsetBuffer, ColumnView[] children) {
     this(type, (int) rows, nullCount.orElse(UNKNOWN_NULL_COUNT).intValue(),
         null, validityBuffer, offsetBuffer, children);
-    assert(type.isNestedType());
+    assert(type.hasChildren());
     assert (nullCount.isPresent() && nullCount.get() <= Integer.MAX_VALUE)
         || !nullCount.isPresent();
   }
@@ -126,7 +126,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
                     BaseDeviceMemoryBuffer validityBuffer) {
     this(type, (int) rows, nullCount.orElse(UNKNOWN_NULL_COUNT).intValue(),
         dataBuffer, validityBuffer, null, null);
-    assert (!type.isNestedType());
+    assert (!type.hasChildren());
     assert (nullCount.isPresent() && nullCount.get() <= Integer.MAX_VALUE)
         || !nullCount.isPresent();
   }
@@ -153,7 +153,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
                     BaseDeviceMemoryBuffer validityBuffer, BaseDeviceMemoryBuffer offsetBuffer) {
     this(type, (int) rows, nullCount.orElse(UNKNOWN_NULL_COUNT).intValue(),
         dataBuffer, validityBuffer, offsetBuffer, null);
-    assert (!type.isNestedType());
+    assert (!type.hasChildren());
     assert (nullCount.isPresent() && nullCount.get() <= Integer.MAX_VALUE)
         || !nullCount.isPresent();
   }
@@ -205,7 +205,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
    */
   public final ColumnView[] getChildColumnViews() {
     int numChildren = getNumChildren();
-    if (!getType().isNestedType()) {
+    if (!getType().hasChildren()) {
       return null;
     }
     ColumnView[] views = new ColumnView[numChildren];
@@ -233,7 +233,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
   public final ColumnView getChildColumnView(int childIndex) {
     int numChildren = getNumChildren();
     assert childIndex < numChildren : "children index should be less than " + numChildren;
-    if (!getType().isNestedType()) {
+    if (!getType().hasChildren()) {
       return null;
     }
     long childColumnView = ColumnView.getChildCvPointer(viewHandle, childIndex);
@@ -252,8 +252,8 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
 
   /**
    * Gets the data buffer for the current column view (viewHandle).
-   * If the type is LIST, STRUCT it returns null.
-   * @return    If the type is LIST, STRUCT or data buffer is empty it returns null,
+   * If the type has children (see {@link DType#hasChildren()}) it returns null.
+   * @return    If the type has children or data buffer is empty it returns null,
    *            else return the data device buffer
    */
   public final BaseDeviceMemoryBuffer getData() {
@@ -285,7 +285,7 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
   }
 
   public final int getNumChildren() {
-    if (!getType().isNestedType()) {
+    if (!getType().hasChildren()) {
       return 0;
     }
     return ColumnView.getNativeNumChildren(viewHandle);
@@ -5584,14 +5584,14 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
       BaseDeviceMemoryBuffer data = null;
       DType type = this.type;
       long rows = this.rows;
-      if (!type.isNestedType()) {
+      if (!type.hasChildren()) {
         data = getData();
       }
       try {
         // We don't have a good way to tell if it is cached on the device or recalculate it on
         // the host for now, so take the hit here.
         getNullCount();
-        if (!type.isNestedType()) {
+        if (!type.hasChildren()) {
           if (valid != null) {
             hostValidityBuffer = hostMemoryAllocator.allocate(valid.getLength());
             hostValidityBuffer.copyFromDeviceBufferAsync(valid, stream);

@@ -409,11 +409,27 @@ public final class DType {
     return INTEGRALS.contains(this.typeId);
   }
 
- /**
-   * Returns true for nested types
+  /**
+   * Returns true for nested types (LIST and STRUCT). This matches libcudf's
+   * {@code cudf::is_nested}. A type can have child columns without being nested; use
+   * {@link #hasChildren()} to ask whether a column exposes child columns.
    */
   public boolean isNestedType() {
     return NESTED_TYPE.contains(this.typeId);
+  }
+
+  /**
+   * Returns true if columns of this type expose child columns through
+   * {@link ColumnView#getNumChildren()} and {@link ColumnView#getChildColumnView(int)}.
+   * Currently LIST and STRUCT. STRING returns false: its offsets are exposed through
+   * {@link ColumnView#getOffsets()}, not as a child column.
+   * <p>
+   * Code that builds, copies or walks columns generically must use this, not
+   * {@link #isNestedType()}. Code that handles specific nested layouts (LIST vs STRUCT) uses
+   * {@link #isNestedType()} and must reject any other type for which this returns true.
+   */
+  public boolean hasChildren() {
+    return HAS_CHILDREN_TYPE.contains(this.typeId);
   }
 
   @Deprecated
@@ -495,6 +511,11 @@ public final class DType {
   );
 
   private static final EnumSet<DTypeEnum> NESTED_TYPE = EnumSet.of(
+      DTypeEnum.LIST,
+      DTypeEnum.STRUCT
+  );
+
+  private static final EnumSet<DTypeEnum> HAS_CHILDREN_TYPE = EnumSet.of(
       DTypeEnum.LIST,
       DTypeEnum.STRUCT
   );

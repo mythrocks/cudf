@@ -254,7 +254,7 @@ public final class HostColumnVector extends HostColumnVectorCore {
    */
   public ColumnVector copyToDevice() {
     if (rows == 0) {
-      if (type.isNestedType()) {
+      if (type.hasChildren()) {
         return ColumnView.NestedColumnVector.createColumnVector(type, 0,
                 null, null, null, Optional.of(0L), children);
       } else {
@@ -266,7 +266,7 @@ public final class HostColumnVector extends HostColumnVectorCore {
     DeviceMemoryBuffer valid = null;
     DeviceMemoryBuffer offsets = null;
     try {
-      if (!type.isNestedType()) {
+      if (!type.hasChildren()) {
         HostMemoryBuffer hdata = this.offHeap.data;
         if (hdata != null) {
           long dataLen = rows * type.getSizeInBytes();
