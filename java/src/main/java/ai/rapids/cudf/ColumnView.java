@@ -251,6 +251,73 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
   }
 
   /**
+   * Dictionary-encode this STRING column. The result is a DICTIONARY32 column with INT32 indices
+   * and STRING keys holding each distinct non-null value once. Keys are in order of first
+   * appearance, not sorted. Nulls in this column are nulls in the result.
+   *
+   * @return a new DICTIONARY32 column
+   * @throws IllegalArgumentException if this column is not STRING
+   */
+  public final ColumnVector dictionaryEncode() {
+    if (!DType.STRING.equals(type)) {
+      throw new IllegalArgumentException("Only STRING columns can be dictionary encoded, not " +
+          type);
+    }
+    return new ColumnVector(dictionaryEncode(getNativeView()));
+  }
+
+  /**
+   * Decode this DICTIONARY32 column into a STRING column with the same values. An empty
+   * dictionary, with or without children, decodes to an empty STRING column.
+   *
+   * @return a new STRING column
+   * @throws IllegalArgumentException if this column is not DICTIONARY32
+   */
+  public final ColumnVector dictionaryDecode() {
+    if (!DType.DICTIONARY32.equals(type)) {
+      throw new IllegalArgumentException("dictionaryDecode requires a DICTIONARY32 column, not " +
+          type);
+    }
+    return new ColumnVector(dictionaryDecode(getNativeView()));
+  }
+
+  /**
+   * Get the indices of this DICTIONARY32 column: a signed integer column (INT8, INT16, INT32 or
+   * INT64) with this column's row count. Index values of null rows are undefined.
+   * Please note that it is the responsibility of the caller to close this view, and this column
+   * must outlive it.
+   *
+   * @throws IllegalArgumentException if this column is not DICTIONARY32
+   * @throws IllegalStateException if this is an empty dictionary without children
+   */
+  public final ColumnView getDictionaryIndices() {
+    return getDictionaryChild(0);
+  }
+
+  /**
+   * Get the keys of this DICTIONARY32 column: a STRING column without nulls. Keys are not
+   * necessarily sorted, and may include values no row uses.
+   * Please note that it is the responsibility of the caller to close this view, and this column
+   * must outlive it.
+   *
+   * @throws IllegalArgumentException if this column is not DICTIONARY32
+   * @throws IllegalStateException if this is an empty dictionary without children
+   */
+  public final ColumnView getDictionaryKeys() {
+    return getDictionaryChild(1);
+  }
+
+  private ColumnView getDictionaryChild(int childIndex) {
+    if (!DType.DICTIONARY32.equals(type)) {
+      throw new IllegalArgumentException("Not a DICTIONARY32 column: " + type);
+    }
+    if (getNumChildren() == 0) {
+      throw new IllegalStateException("This empty DICTIONARY32 column has no children");
+    }
+    return getChildColumnView(childIndex);
+  }
+
+  /**
    * Gets the data buffer for the current column view (viewHandle).
    * If the type has children (see {@link DType#hasChildren()}) it returns null.
    * @return    If the type has children or data buffer is empty it returns null,
@@ -2334,6 +2401,10 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
    */
   public ColumnView replaceChildrenWithViews(int[] indices,
                                              ColumnView[] views) {
+    if (type.equals(DType.DICTIONARY32)) {
+      throw new IllegalArgumentException(
+          "Replacing the children of a DICTIONARY32 column is not supported");
+    }
     assert (type.isNestedType());
     assert (indices.length == views.length);
     if (type == DType.LIST) {
@@ -5247,6 +5318,10 @@ public class ColumnView implements AutoCloseable, BinaryOperable {
   static native long getChildCvPointer(long viewHandle, int childIndex) throws CudfException;
 
   private static native long getListOffsetCvPointer(long viewHandle) throws CudfException;
+
+  private static native long dictionaryEncode(long viewHandle) throws CudfException;
+
+  private static native long dictionaryDecode(long viewHandle) throws CudfException;
 
   static native int getNativeNumChildren(long viewHandle) throws CudfException;
 

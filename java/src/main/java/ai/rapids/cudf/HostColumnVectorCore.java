@@ -121,6 +121,13 @@ public class HostColumnVectorCore implements AutoCloseable {
       return getList(rowIndex);
     } else if (type.equals(DType.STRUCT)) {
       return getStruct(rowIndex);
+    } else if (type.equals(DType.DICTIONARY32)) {
+      if (isNull(rowIndex)) {
+        return null;
+      }
+      // children: [indices (INT8/16/32/64), keys]
+      int keyIndex = ((Number) children.get(0).getElement(rowIndex)).intValue();
+      return children.get(1).getElement(keyIndex);
     } else {
       if (isNull(rowIndex)) {
         return null;
